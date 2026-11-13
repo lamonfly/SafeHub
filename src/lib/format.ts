@@ -1,0 +1,33 @@
+const byteUnits = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+
+export function formatBytes(bytes: number): string {
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < byteUnits.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  return `${value.toFixed(unit === 0 ? 0 : 1)} ${byteUnits[unit]}`;
+}
+
+export function formatPercent(fraction: number): string {
+  return `${Math.round(fraction * 100)}%`;
+}
+
+export function formatTimeAgo(date: Date): string {
+  const seconds = Math.round((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)} h ago`;
+  return `${Math.floor(seconds / 86_400)} d ago`;
+}
+
+export function formatUptime(seconds: number): string {
+  if (seconds <= 0) return "—";
+  const days = Math.floor(seconds / 86_400);
+  const hours = Math.floor((seconds % 86_400) / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
