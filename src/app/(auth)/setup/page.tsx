@@ -19,13 +19,18 @@ export default async function SetupPage() {
         action={createAdmin}
         submitLabel="Create account"
         fields={[
-          { name: "name", label: "Name", type: "text", autoComplete: "name" },
-          { name: "email", label: "Email", type: "email", autoComplete: "email" },
+          {
+            name: "username",
+            label: "Username (letters, digits, _ and .)",
+            type: "text",
+            autoComplete: "username",
+          },
           {
             name: "password",
-            label: "Password (12+ characters)",
+            label: "Password (optional)",
             type: "password",
             autoComplete: "new-password",
+            required: false,
           },
         ]}
       />

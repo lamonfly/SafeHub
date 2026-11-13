@@ -36,7 +36,7 @@ export function cidrContains({ network, prefix }: Cidr, ip: string): boolean {
   return (ipToInt(ip) & mask) >>> 0 === ipToInt(network);
 }
 
-// The server's own private IPv4 subnets, e.g. ["192.168.0.0/24"].
+// The server's own private IPv4 subnets, e.g. ["192.168.1.0/24"].
 // Wider subnets are narrowed to the /24 around the server's address.
 export function localSubnets(): string[] {
   const subnets = new Set<string>();

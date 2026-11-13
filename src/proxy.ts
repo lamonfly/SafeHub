@@ -12,6 +12,8 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!api/auth|login|setup|_next/static|_next/image|favicon.ico).*)",
+    // Each excluded path must end there or continue with "/", so e.g.
+    // /loginx still goes through the proxy.
+    "/((?!(?:api/auth|api/health|login|setup|_next/static|_next/image|favicon\\.ico)(?:/|$)).*)",
   ],
 };

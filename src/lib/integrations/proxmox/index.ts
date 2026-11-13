@@ -1,7 +1,7 @@
 import "server-only";
-import { fetch } from "undici";
 import { z } from "zod";
 import { env } from "@/lib/env";
+import { createHttpClient, type HttpClient } from "../http";
 import { errorResult, type IntegrationResult } from "../result";
 import { createTlsAgent } from "../tls";
 import {
@@ -13,39 +13,30 @@ import {
   type ProxmoxNode,
 } from "./schemas";
 
-const TIMEOUT_MS = 5_000;
-
-const config =
+const client =
   env.PROXMOX_URL && env.PROXMOX_TOKEN_ID && env.PROXMOX_TOKEN_SECRET
-    ? {
-        baseUrl: new URL("/api2/json/", env.PROXMOX_URL),
-        authorization: `PVEAPIToken=${env.PROXMOX_TOKEN_ID}=${env.PROXMOX_TOKEN_SECRET}`,
+    ? createHttpClient({
+        name: "Proxmox",
+        baseUrl: new URL("/api2/json/", env.PROXMOX_URL).href,
+        headers: {
+          Authorization: `PVEAPIToken=${env.PROXMOX_TOKEN_ID}=${env.PROXMOX_TOKEN_SECRET}`,
+        },
         dispatcher: createTlsAgent({
           caCertPath: env.PROXMOX_CA_CERT_PATH,
           allowSelfSigned: env.PROXMOX_ALLOW_SELF_SIGNED,
         }),
-      }
+      })
     : null;
 
-type Config = NonNullable<typeof config>;
-
+// Proxmox wraps every response in { data }. Errors carry the reason in the
+// status text, e.g. "Permission check failed".
 async function request<T extends z.ZodType>(
-  config: Config,
-  method: "GET" | "POST",
+  client: HttpClient,
+  method: "get" | "post",
   path: string,
   schema: T,
 ): Promise<z.infer<T>> {
-  const response = await fetch(new URL(path, config.baseUrl), {
-    method,
-    headers: { Authorization: config.authorization },
-    dispatcher: config.dispatcher,
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  if (!response.ok) {
-    // Proxmox puts the reason in the status text, e.g. "Permission check failed".
-    throw new Error(`Proxmox ${response.status} ${response.statusText}`.trim());
-  }
-  return schema.parse(responseSchema.parse(await response.json()).data);
+  return schema.parse((await client[method](path, responseSchema)).data);
 }
 
 export type ProxmoxOverview = {
@@ -54,11 +45,11 @@ export type ProxmoxOverview = {
 };
 
 export async function getProxmoxOverview(): Promise<IntegrationResult<ProxmoxOverview>> {
-  if (!config) return { status: "not-configured" };
+  if (!client) return { status: "not-configured" };
   try {
     const [nodes, guests] = await Promise.all([
-      request(config, "GET", "nodes", z.array(nodeSchema)),
-      request(config, "GET", "cluster/resources?type=vm", z.array(guestSchema)),
+      request(client, "get", "nodes", z.array(nodeSchema)),
+      request(client, "get", "cluster/resources?type=vm", z.array(guestSchema)),
     ]);
     return {
       status: "ok",
@@ -80,11 +71,11 @@ export async function runGuestAction({
   vmid,
   action,
 }: GuestActionInput): Promise<IntegrationResult<string>> {
-  if (!config) return { status: "not-configured" };
+  if (!client) return { status: "not-configured" };
   try {
     const upid = await request(
-      config,
-      "POST",
+      client,
+      "post",
       `nodes/${node}/${type}/${vmid}/status/${action}`,
       z.string(),
     );

@@ -17,12 +17,13 @@ export default async function LoginPage() {
         action={signIn}
         submitLabel="Sign in"
         fields={[
-          { name: "email", label: "Email", type: "email", autoComplete: "email" },
+          { name: "username", label: "Username", type: "text", autoComplete: "username" },
           {
             name: "password",
             label: "Password",
             type: "password",
             autoComplete: "current-password",
+            required: false,
           },
         ]}
       />

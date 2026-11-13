@@ -31,7 +31,7 @@ export const guestSchema = z.object({
 export type ProxmoxNode = z.infer<typeof nodeSchema>;
 export type ProxmoxGuest = z.infer<typeof guestSchema>;
 
-export const guestActions = ["start", "shutdown", "reboot", "stop"] as const;
+export const guestActions = ["start", "shutdown", "reboot", "stop", "resume"] as const;
 export type GuestAction = (typeof guestActions)[number];
 
 // Input for control actions; values end up in the request URL.

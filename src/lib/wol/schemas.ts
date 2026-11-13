@@ -28,11 +28,12 @@ export const wolDeviceInputSchema = z
   .object({
     name: z.string().trim().min(1, "Enter a name.").max(64),
     mac: macSchema,
-    broadcast: z
-      .string()
-      .trim()
-      .default("255.255.255.255")
-      .refine(isAllowedBroadcast, "Broadcast must be 255.255.255.255 or a private address."),
+    broadcast: optional(
+      z
+        .string()
+        .trim()
+        .refine(isAllowedBroadcast, "Broadcast must be 255.255.255.255 or a private address."),
+    ).transform((broadcast) => broadcast ?? "255.255.255.255"),
     port: optional(portSchema).transform((port) => port ?? 9),
     host: optional(
       z

@@ -9,9 +9,10 @@ const labels: Record<GuestAction, string> = {
   shutdown: "Shut down",
   reboot: "Reboot",
   stop: "Force stop",
+  resume: "Resume",
 };
 
-// Everything except start interrupts a running guest, so it needs confirming.
+// Start and resume are harmless; everything else interrupts a guest.
 const confirmations: Partial<Record<GuestAction, string>> = {
   shutdown: "Shut down",
   reboot: "Reboot",
@@ -26,8 +27,13 @@ export function GuestActions({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string>();
 
+  // A paused guest must be resumed (or stopped); Proxmox rejects start.
   const actions: GuestAction[] =
-    guest.status === "running" ? ["shutdown", "reboot", "stop"] : ["start"];
+    guest.status === "running"
+      ? ["shutdown", "reboot", "stop"]
+      : guest.status === "paused"
+        ? ["resume", "stop"]
+        : ["start"];
 
   function run(action: GuestAction) {
     const question = confirmations[action];

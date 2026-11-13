@@ -1,0 +1,20 @@
+# SafeHub. See README.md "Deploy" for setup.
+services:
+  safehub:
+    build: .
+    image: safehub:latest
+    container_name: safehub
+    # Host networking: needed for Wake on LAN broadcasts and for the scanner
+    # to see MAC addresses. The app listens directly on the host's PORT.
+    network_mode: host
+    # Run as the owner of ./data on the host (Synology users are often
+    # uid 1026, gid 100). Check with: id <your-user>
+    user: "${PUID:-1000}:${PGID:-1000}"
+    env_file: .env
+    environment:
+      DATABASE_PATH: /app/data/safehub.db
+    volumes:
+      - ./data:/app/data
+      # CA certificates for Proxmox/DSM, e.g. /app/certs/pve-root-ca.pem
+      - ./certs:/app/certs:ro
+    restart: unless-stopped

@@ -1,4 +1,5 @@
 import "server-only";
+import { accessSync, constants } from "node:fs";
 import { z } from "zod";
 
 // Integrations are optional: an unset URL means "not configured", and the
@@ -6,25 +7,46 @@ import { z } from "zod";
 const optionalUrl = z.url().optional();
 const optionalSecret = z.string().min(1).optional();
 const optionalFlag = z.stringbool().default(false);
+// Checked at boot so a wrong path stops the server with a clear message,
+// instead of breaking the page that loads the integration.
+const optionalReadableFile = z
+  .string()
+  .min(1)
+  .refine((path) => {
+    try {
+      accessSync(path, constants.R_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }, "File not found or not readable.")
+  .optional();
 
 const envSchema = z.object({
   // Core: these are required.
   BETTER_AUTH_SECRET: z.string().min(32),
   BETTER_AUTH_URL: z.url(),
+  // Extra addresses SafeHub is opened at, comma-separated, e.g. the LAN IP
+  // when BETTER_AUTH_URL is the Caddy domain.
+  BETTER_AUTH_TRUSTED_ORIGINS: z
+    .string()
+    .default("")
+    .transform((value) => value.split(",").map((origin) => origin.trim()).filter(Boolean))
+    .pipe(z.array(z.url())),
   DATABASE_PATH: z.string().min(1).default("./data/safehub.db"),
 
   // Proxmox VE: API token auth, e.g. PROXMOX_TOKEN_ID="user@pam!safehub"
   PROXMOX_URL: optionalUrl,
   PROXMOX_TOKEN_ID: optionalSecret,
   PROXMOX_TOKEN_SECRET: optionalSecret,
-  PROXMOX_CA_CERT_PATH: optionalSecret,
+  PROXMOX_CA_CERT_PATH: optionalReadableFile,
   PROXMOX_ALLOW_SELF_SIGNED: optionalFlag,
 
   // Synology DSM
   SYNOLOGY_URL: optionalUrl,
   SYNOLOGY_USERNAME: optionalSecret,
   SYNOLOGY_PASSWORD: optionalSecret,
-  SYNOLOGY_CA_CERT_PATH: optionalSecret,
+  SYNOLOGY_CA_CERT_PATH: optionalReadableFile,
   SYNOLOGY_ALLOW_SELF_SIGNED: optionalFlag,
 
   // *arr stack

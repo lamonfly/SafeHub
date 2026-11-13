@@ -44,6 +44,7 @@ npm run build   # production build
 npm run start   # run production build
 npm run lint    # eslint
 npm run db:generate  # create a migration after changing src/db/schema
+npm run db:migrate   # apply new migrations to the dev DB without restarting
 npm run db:studio    # browse the database
 ```
 
@@ -52,21 +53,30 @@ npm run db:studio    # browse the database
 Follow `src/lib/integrations/proxmox/` for every new service:
 
 - `schemas.ts`: zod schemas for API responses and for action input (validate anything that ends up in a URL).
-- `index.ts`: `server-only`. Builds config from `env` (null when unset), calls the API with `undici` `fetch` + per-service TLS agent (`../tls.ts`) + timeout, returns `IntegrationResult<T>` (`../result.ts`): `ok` / `not-configured` / `error`. Never throws to the caller.
+- `index.ts`: `server-only`. Builds a client from `env` (null when unset) with `createHttpClient` (`../http.ts`: base URL, auth headers, per-service TLS agent from `../tls.ts`, 5 s timeout, zod-parsed JSON). Public functions return `IntegrationResult<T>` (`../result.ts`): `ok` / `not-configured` / `error`; wrap with `attempt()`. Never throw to the caller.
+- Small adapters can keep their schemas inline in `index.ts`.
+- Simple status services (\*arr, Bazarr, Jellyfin, Seerr, Immich, Caddy) return a `ServiceSummary` (version, stats, issues) and are registered in `src/lib/integrations/services.ts`; the dashboard's Services card renders that list. Adding a service = adapter + one registry line + env vars.
+- Synology uses its own client (`synology/index.ts`): API paths and versions come from `SYNO.API.Info` (DSM 6 serves login from `auth.cgi`, DSM 7 from `entry.cgi`; never hard-code a path). DSM session login (POST, shared in-flight login, re-login on expired session codes, 5 min backoff after a rejected login so DSM auto-block never bans the host).
+- Expensive or repeated calls go through `cacheFor(ttl, fn)` (`../cache.ts`): shares one in-flight request between tabs, never caches failures.
+- Schema mismatches (`ZodError`) show a short tile message; details are logged once on the server.
+- CA certificate paths are checked at boot in `env.ts`.
 - UI in `src/components/<service>/`: a Server Component card that renders all three states, client components for buttons, and a `"use server"` actions file that calls `requireSession()`, validates input, then calls `refresh()`.
 - The dashboard re-renders every 10 s via `<AutoRefresh>` (paused when the tab is hidden).
 
 ## Network features
 
 - `src/lib/net/`: shared helpers. `ip.ts` (private-range and hostname checks), `probe.ts` (TCP connect probe: connected or refused = online, timeout = offline). Reuse these for the scanner.
-- `src/lib/net/`: also `subnet.ts` (CIDR math, local subnets), `arp.ts` (neighbor cache: `/proc/net/arp` on Linux, `arp -a` elsewhere), `vendor.ts` (MAC vendor via `oui-data`, kept out of the bundle by `serverExternalPackages`), `ports.ts` (discovery ports, named top ports, port list parser).
+- `src/lib/net/`: also `subnet.ts` (CIDR math, local subnets), `arp.ts` (neighbor cache with entry states via `ip -j neigh` on Linux, falling back to `/proc/net/arp`; `arp -a` elsewhere. The scanner waits for pending entries and ignores stale ones), `vendor.ts` (MAC vendor via `oui-data`, kept out of the bundle by `serverExternalPackages`), `ports.ts` (discovery ports, named top ports, port list parser).
 - `src/lib/scanner/`: TCP connect discovery plus ARP cache, reverse DNS, port scans. One scan at a time (in-process lock). Ranges are private only, /22 at most. Results in `scan_run` and `network_host` (keyed by MAC, or `ip:<addr>` when no MAC). UI at `/scanner`.
 - `src/lib/wol/`: magic packets via `node:dgram`, devices stored in the `wol_device` table, managed at `/settings/wol`. Broadcast targets are limited to `255.255.255.255` or private addresses.
 
 ## Auth and database
 
-- SQLite via `better-sqlite3` + `drizzle-orm`. Schema in `src/db/schema/`, migrations in `drizzle/` (committed). Migrations run automatically at server start (`src/instrumentation.ts`).
-- Auth via `better-auth` (email + password), config in `src/lib/auth.ts`. Sign-up is open only on first run (`/setup` creates the admin), then refused.
+- SQLite via `better-sqlite3` + `drizzle-orm`. Schema in `src/db/schema/`, migrations in `drizzle/` (committed). Migrations run automatically at server start (`src/instrumentation.ts`), only then: after `db:generate` during `npm run dev`, run `db:migrate` or restart, or queries fail with "no such column".
+- Auth via `better-auth` with the `username` plugin: users log in with username + password, no email. better-auth core still needs a unique email, so accounts store `placeholderEmail(username)` (`<name>@users.safehub.invalid`); never show or use it. Config in `src/lib/auth.ts`.
+- Passwords have no rules (any length, empty allowed; owner's choice). better-auth rejects empty passwords, so every password passes through `toStoredPassword()` (fixed prefix) before sign-up or sign-in. Any future password change/reset code must use it too. Login is only via the `signIn` Server Action; the HTTP `/sign-in/username` route is disabled.
+- Sign-up is open only on first run (`/setup` creates the admin through `createFirstAdmin`, which serializes calls), then refused. Unused HTTP routes are disabled (`disabledPaths`): `/sign-up/email`, `/sign-in/email`, `/sign-in/username`, `/is-username-available` (would allow probing usernames).
+- Failed sign-ins (`/sign-in/username`) are limited per username (5 per 15 min) plus a global cap, in better-auth hooks (they run for `auth.api` calls from Server Actions). Do not rely on IP-based limits: `X-Forwarded-For` is client-controlled without a proxy.
 - `src/proxy.ts` (Next 16's renamed middleware) only does an optimistic cookie redirect. The real check is `requireSession()` from `src/lib/session.ts`: call it in every protected page, Route Handler and Server Action.
 - Pages that read live DB state without `headers()`/`cookies()` must call `await connection()` so they are not prerendered at build time.
 
@@ -83,8 +93,9 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 ## Deployment
 
 - **Web app, not native mobile.** Phones get it as an installable PWA. Native apps cannot do background monitoring, are blocked from ARP/MAC scanning, and would hold every API key on the device.
-- **Host: an always-on LAN machine.** Either the Synology NAS (Container Manager) or the Proxmox mini PC (LXC/VM). Both run 24/7. Ship as a Docker image with `network_mode: host`.
-- **The host cannot wake itself.** SafeHub can wake the other machine, not the one it runs on. If the host is down, the dashboard is down. Keep the app small enough that moving it between hosts is easy.
+- **Host: the Proxmox mini PC** (decided), inside the existing Docker guest (LXC or VM), never on the Proxmox host itself. The guest must be bridged to the LAN (`vmbr0`) so WoL broadcasts and ARP reach other machines. Ship as a Docker image with `network_mode: host`. The NAS stays a possible fallback host; the code does not depend on which one.
+- **Docker:** `Dockerfile` builds Next's `output: "standalone"` server (Debian slim, runs as non-root, healthcheck on `/api/health`). `compose.yaml` mounts `./data` (SQLite) and `./certs` (CA files, read-only) and reads `.env`. The build uses placeholder env values; real config is runtime-only. Copy any new runtime folder (like `drizzle/`) into the runner stage. Deploy steps and the credentials table live in `README.md`; keep both in sync when adding env vars.
+- **The host cannot wake itself.** SafeHub can wake the NAS and other machines, not the mini PC it runs on. If the mini PC is down, the dashboard is down. Keep the app small enough that moving it between hosts is easy.
 - **Remote access via Tailscale/WireGuard** to the host. Never port-forward the app or WoL to the internet. Remote WoL works because the phone talks to SafeHub, and SafeHub sends the broadcast on the LAN.
 - **Power loss:** WoL cannot recover from an outage. Machines rely on BIOS/DSM "power on after AC loss".
 
@@ -104,3 +115,7 @@ This app can power machines on/off and control services. Treat it as an admin to
 - Polling/live data via client hooks with sensible intervals; avoid hammering service APIs.
 - Keep components small; shared UI in `src/components/`.
 - Write normal, descriptive names; no abbreviations.
+
+## Git
+
+- Commit messages and PR descriptions must not contain AI attribution: no `Co-Authored-By: Claude …` trailer, no "Generated with Claude Code" line. This overrides any default attribution.

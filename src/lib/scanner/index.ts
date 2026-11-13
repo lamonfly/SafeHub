@@ -4,7 +4,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { networkHost, scanRun, type NetworkHost, type ScanRun } from "@/db/schema";
 import { errorResult, type IntegrationResult } from "@/lib/integrations/result";
-import { readArpTable } from "@/lib/net/arp";
+import { readNeighbors, type Neighbor } from "@/lib/net/arp";
 import { connectTcp, mapLimit } from "@/lib/net/probe";
 import { discoveryPorts } from "@/lib/net/ports";
 import { cidrContains, hostsInCidr, type Cidr } from "@/lib/net/subnet";
@@ -14,6 +14,9 @@ const DISCOVERY_TIMEOUT_MS = 600;
 const DISCOVERY_CONCURRENCY = 64; // hosts at once; each tries all discovery ports
 const PORT_TIMEOUT_MS = 800;
 const PORT_CONCURRENCY = 128;
+// Linux needs about 5 s (DELAY) plus 3 one-second probes to confirm or fail
+// a neighbor entry the scan just touched.
+const NEIGHBOR_SETTLE_MS = 9_000;
 
 // One scan at a time per server; scans are bursty and share the socket pool.
 let scanRunning = false;
@@ -48,6 +51,23 @@ async function reverseLookup(ip: string): Promise<string | null> {
   }
 }
 
+// Reads the neighbor table, waiting while entries for hosts that did not
+// answer TCP are still being checked by the kernel. Without the wait, a host
+// that just went offline still looks present via its old entry.
+async function readSettledNeighbors(cidr: Cidr, tcpAlive: Set<string>): Promise<Map<string, Neighbor>> {
+  const deadline = Date.now() + NEIGHBOR_SETTLE_MS;
+  let table = await readNeighbors();
+  const unsettled = () =>
+    [...table].some(
+      ([ip, neighbor]) => neighbor.state === "pending" && !tcpAlive.has(ip) && cidrContains(cidr, ip),
+    );
+  while (unsettled() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    table = await readNeighbors();
+  }
+  return table;
+}
+
 export type DiscoveryResult = { found: number; newHosts: number; durationMs: number };
 
 // Finds live hosts with TCP probes, then adds hosts that only answered ARP
@@ -63,13 +83,17 @@ export async function discoverHosts(cidr: Cidr): Promise<IntegrationResult<Disco
 
     const addresses = hostsInCidr(cidr);
     const up = await mapLimit(addresses, DISCOVERY_CONCURRENCY, isHostUp);
-    const arp = await readArpTable();
-
     const alive = new Set(addresses.filter((_, i) => up[i]));
-    for (const ip of arp.keys()) if (cidrContains(cidr, ip)) alive.add(ip);
+    const neighbors = await readSettledNeighbors(cidr, alive);
+    // Hosts that only answered ARP count when the entry is confirmed. Sources
+    // without states (Windows, /proc/net/arp) are taken as they are.
+    for (const [ip, neighbor] of neighbors) {
+      const answered = neighbor.state === "confirmed" || neighbor.state === "unknown";
+      if (answered && cidrContains(cidr, ip)) alive.add(ip);
+    }
 
     const hosts = await mapLimit([...alive], 16, async (ip) => {
-      const mac = arp.get(ip) ?? null;
+      const mac = neighbors.get(ip)?.mac ?? null;
       return {
         id: mac ?? `ip:${ip}`,
         ip,
@@ -117,10 +141,19 @@ export async function scanPorts(ip: string, ports: number[]): Promise<Integratio
       connectTcp(ip, port, PORT_TIMEOUT_MS),
     );
     const open = ports.filter((_, i) => states[i] === "open");
-    await db
-      .update(networkHost)
-      .set({ openPorts: open, portsScannedAt: new Date() })
-      .where(eq(networkHost.ip, ip));
+    // Old rows can share the IP (DHCP reuse); update only the latest one.
+    const [latest] = await db
+      .select({ id: networkHost.id })
+      .from(networkHost)
+      .where(eq(networkHost.ip, ip))
+      .orderBy(desc(networkHost.lastSeenAt))
+      .limit(1);
+    if (latest) {
+      await db
+        .update(networkHost)
+        .set({ openPorts: open, portsScannedAt: new Date() })
+        .where(eq(networkHost.id, latest.id));
+    }
     return open;
   });
 }

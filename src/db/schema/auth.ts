@@ -17,6 +17,10 @@ const timestamps = {
 export const user = sqliteTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  // Login name (better-auth username plugin), stored lowercase.
+  username: text("username").unique(),
+  // Required by better-auth core but unused: SafeHub logs in by username and
+  // stores an internal placeholder here (see lib/auth.ts).
   email: text("email").notNull().unique(),
   emailVerified: integer("email_verified", { mode: "boolean" })
     .notNull()

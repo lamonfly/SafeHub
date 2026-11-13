@@ -6,8 +6,10 @@ import type { FormState } from "./actions";
 type Field = {
   name: string;
   label: string;
-  type: "text" | "email" | "password";
+  type: "text" | "password";
   autoComplete: string;
+  // Defaults to true. Passwords may be empty, so they pass false.
+  required?: boolean;
 };
 
 export function AuthForm({
@@ -30,7 +32,7 @@ export function AuthForm({
             name={field.name}
             type={field.type}
             autoComplete={field.autoComplete}
-            required
+            required={field.required ?? true}
             className="rounded-md border border-foreground/20 bg-transparent px-3 py-2"
           />
         </label>
