@@ -11,8 +11,18 @@ const countsSchema = z.object({
   SeriesCount: z.number().default(0),
 });
 
+// URLs copied from the browser often end in the web app's path
+// (http://host:8096/web/#/home); the API lives one level up.
+export function normalizeJellyfinUrl(url: string | undefined): string | undefined {
+  if (!url) return url;
+  const parsed = new URL(url);
+  parsed.hash = "";
+  parsed.pathname = parsed.pathname.replace(/\/web(\/.*)?$/, "/");
+  return parsed.href;
+}
+
 export const getJellyfinClient = perSettings((): HttpClient | null => {
-  const url = getSetting("JELLYFIN_URL");
+  const url = normalizeJellyfinUrl(getSetting("JELLYFIN_URL"));
   const apiKey = getSetting("JELLYFIN_API_KEY");
   return url && apiKey
     ? createHttpClient({

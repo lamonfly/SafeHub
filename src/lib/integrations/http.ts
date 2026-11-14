@@ -31,6 +31,15 @@ export function createHttpClient(options: {
     if (!response.ok) {
       throw new Error(`${options.name} ${response.status} ${response.statusText}`.trim());
     }
+    // A web page instead of JSON almost always means the URL points at the
+    // app's web UI (e.g. Jellyfin's /web/#/home copied from the browser) or a
+    // login page in front of it, not at the server's API.
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("text/html")) {
+      throw new Error(
+        `${options.name} answered with a web page instead of API data. Check the URL: use the server address (e.g. http://192.168.1.20:8096), not a page of its web interface or a login page in front of it.`,
+      );
+    }
     return schema.parse(await response.json()) as z.infer<T>;
   }
 
