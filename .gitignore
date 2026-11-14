@@ -37,6 +37,9 @@ yarn-error.log*
 # local database
 /data
 
+# app config folders for auto-setup (contain API keys)
+/appdata
+
 # vercel
 .vercel
 

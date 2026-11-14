@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { env } from "@/lib/env";
+import { resolveService, type DiscoverableApp } from "../discovery";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
 
 // Sonarr, Radarr (API v3) and Prowlarr (API v1) share the same base API.
@@ -11,8 +12,17 @@ const pagedSchema = z.object({ totalRecords: z.number() });
 const indexersSchema = z.array(z.object({ enable: z.boolean().default(true) }));
 const indexerStatusSchema = z.array(z.object({ indexerId: z.number() }));
 
-function arrClient(name: string, url?: string, apiKey?: string): HttpClient | null {
-  return url && apiKey ? createHttpClient({ name, baseUrl: url, headers: { "X-Api-Key": apiKey } }) : null;
+// Explicit settings win; otherwise use what auto-setup found in ./appdata.
+function arrClient(
+  name: string,
+  app: DiscoverableApp,
+  url?: string,
+  apiKey?: string,
+): HttpClient | null {
+  const service = resolveService(app, url, apiKey);
+  return service
+    ? createHttpClient({ name, baseUrl: service.url, headers: { "X-Api-Key": service.apiKey } })
+    : null;
 }
 
 async function baseSummary(client: HttpClient, api: string) {
@@ -26,9 +36,9 @@ async function baseSummary(client: HttpClient, api: string) {
   };
 }
 
-export const sonarrClient = arrClient("Sonarr", env.SONARR_URL, env.SONARR_API_KEY);
-export const radarrClient = arrClient("Radarr", env.RADARR_URL, env.RADARR_API_KEY);
-export const prowlarrClient = arrClient("Prowlarr", env.PROWLARR_URL, env.PROWLARR_API_KEY);
+export const sonarrClient = arrClient("Sonarr", "sonarr", env.SONARR_URL, env.SONARR_API_KEY);
+export const radarrClient = arrClient("Radarr", "radarr", env.RADARR_URL, env.RADARR_API_KEY);
+export const prowlarrClient = arrClient("Prowlarr", "prowlarr", env.PROWLARR_URL, env.PROWLARR_API_KEY);
 
 export async function sonarrSummary(client: HttpClient): Promise<ServiceSummary> {
   const [base, queue, missing] = await Promise.all([

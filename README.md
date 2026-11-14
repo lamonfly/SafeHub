@@ -6,7 +6,7 @@ Self-hosted dashboard for a home lab. One page to see and control your servers a
 
 - **Proxmox:** node CPU, RAM and uptime; VMs and LXCs with start, shut down, reboot, force stop and resume (destructive actions ask first).
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
-- **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr), Immich and Caddy. Health warnings show on each tile.
+- **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr), Immich and Caddy. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders.
 - **Fails soft:** an unconfigured or unreachable service shows its own error; the rest of the dashboard keeps working.
 - **Single admin login**, SQLite storage, no external services or telemetry.
 
@@ -38,6 +38,28 @@ docker compose up -d
 
 The first start builds the image from GitHub (a few minutes). Then open `http://<machine IP>:3000` and create your account on `/setup`. Everything else is automatic: the `data` folder and its permissions, the login secret (`data/auth-secret`) and the database. Add services whenever you like (next section).
 
+## Automatic setup for Sonarr, Radarr, Prowlarr, Bazarr and Seerr
+
+These apps keep their API key in their own config folder. Give SafeHub read-only access to those folders and it configures them itself: no keys to copy.
+
+1. Mount each app's config folder (the one mapped to `/config`, or `/app/config` for Seerr) at `/app/appdata/<container name>`:
+   ```yaml
+       volumes:
+         - ./data:/app/data
+         - ../servarr/sonarr:/app/appdata/sonarr:ro
+         - ../servarr/radarr:/app/appdata/radarr:ro
+         - ../servarr/prowlarr:/app/appdata/prowlarr:ro
+         - ../servarr/bazarr:/app/appdata/bazarr:ro
+         - ../servarr/jellyseerr:/app/appdata/jellyseerr:ro
+   ```
+   The left side is wherever that folder lives on the host (relative to SafeHub's `compose.yaml`).
+2. Put SafeHub on the same Docker network as those containers (same compose file, or the `networks:` lines in SafeHub's `compose.yaml`). The folder name is used as the address, e.g. `http://sonarr:8989`, so name it like the container.
+3. `docker compose up -d`. The log lists what was found: `docker compose logs safehub | grep Auto-setup`.
+
+SafeHub reads `config.xml` (Sonarr, Radarr, Prowlarr: key, port, URL base), `config/config.yaml` (Bazarr) and `settings.json` (Seerr / Jellyseerr / Overseerr; port 5055). Anything you set explicitly (`SONARR_URL`, `SONARR_API_KEY`, ...) wins, e.g. a LAN address when SafeHub is not on the apps' network. Note that these folders also hold the apps' other settings; SafeHub only reads the values above.
+
+Jellyfin, Immich, Proxmox and Synology still need their keys set once (next section).
+
 ## Settings and credentials
 
 Settings are environment variables. Put them either under `environment:` in `compose.yaml` or in an optional `.env` file next to it; [`.env.example`](.env.example) lists every one with setup notes. After a change, apply it with `docker compose up -d` (a plain `restart` does not reload settings). Anything without settings is simply hidden from the dashboard.
@@ -50,9 +72,9 @@ Settings are environment variables. Put them either under `environment:` in `com
 | Proxmox API token | Proxmox UI: Datacenter → Permissions → API Tokens | `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET` | The secret is shown only once. |
 | Proxmox / Synology certificates | Automatic: pinned on first connection | Optional: `*_CA_CERT_PATH=./certs/<ca>.pem` to verify against a CA instead | A changed certificate shows an "Accept new certificate" button on the card |
 | Synology user + password | DSM: Control Panel → User. Dedicated user, in `administrators`, 2FA off, all apps denied | `SYNOLOGY_URL`, `SYNOLOGY_USERNAME`, `SYNOLOGY_PASSWORD` | DSM 6 and 7 |
-| Sonarr / Radarr / Prowlarr / Bazarr API keys | Each app: Settings → General → API Key | `<APP>_URL`, `<APP>_API_KEY` | |
+| Sonarr / Radarr / Prowlarr / Bazarr API keys | Automatic (see above), or each app: Settings → General → API Key | `<APP>_URL`, `<APP>_API_KEY` | |
 | Jellyfin API key | Jellyfin: Dashboard → API Keys → + | `JELLYFIN_URL`, `JELLYFIN_API_KEY` | |
-| Seerr API key | Seerr: Settings → General → API Key | `SEERR_URL`, `SEERR_API_KEY` | |
+| Seerr API key | Automatic (see above), or Seerr: Settings → General → API Key | `SEERR_URL`, `SEERR_API_KEY` | |
 | Immich API key | Immich (as admin): Account Settings → API Keys | `IMMICH_URL`, `IMMICH_API_KEY` | |
 | Caddy admin address | Caddyfile global `admin` option | `CADDY_ADMIN_URL` | Read the warning in `.env.example` first. |
 

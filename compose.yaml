@@ -35,7 +35,8 @@ services:
       # SYNOLOGY_CA_CERT_PATH: ./certs/synology-ca.pem
       # SYNOLOGY_ALLOW_SELF_SIGNED: "true"
 
-      # Services
+      # Services (Sonarr, Radarr, Prowlarr, Bazarr, Seerr: automatic with the
+      # appdata volumes below; settings here override what is found)
       # SONARR_URL: http://192.168.1.20:8989
       # SONARR_API_KEY:
       # RADARR_URL: http://192.168.1.20:7878
@@ -54,6 +55,12 @@ services:
     volumes:
       - ./data:/app/data
       - ./certs:/app/certs:ro
+      # Auto-setup: each app's config folder, read-only, named like its container
+      # - ../servarr/sonarr:/app/appdata/sonarr:ro
+      # - ../servarr/radarr:/app/appdata/radarr:ro
+      # - ../servarr/prowlarr:/app/appdata/prowlarr:ro
+      # - ../servarr/bazarr:/app/appdata/bazarr:ro
+      # - ../servarr/jellyseerr:/app/appdata/jellyseerr:ro
     restart: unless-stopped
     # To reach another stack's containers by name (http://sonarr:8989):
     # networks: [default, servarr]

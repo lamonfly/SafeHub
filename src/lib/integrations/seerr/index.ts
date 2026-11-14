@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { env } from "@/lib/env";
+import { resolveService } from "../discovery";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
 
 // Works with Seerr, Jellyseerr and Overseerr (same API).
@@ -11,14 +12,16 @@ const requestCountSchema = z.object({
   available: z.number().default(0),
 });
 
-export const seerrClient: HttpClient | null =
-  env.SEERR_URL && env.SEERR_API_KEY
-    ? createHttpClient({
-        name: "Seerr",
-        baseUrl: env.SEERR_URL,
-        headers: { "X-Api-Key": env.SEERR_API_KEY },
-      })
-    : null;
+// Explicit settings win; otherwise use what auto-setup found in ./appdata.
+const service = resolveService("seerr", env.SEERR_URL, env.SEERR_API_KEY);
+
+export const seerrClient: HttpClient | null = service
+  ? createHttpClient({
+      name: "Seerr",
+      baseUrl: service.url,
+      headers: { "X-Api-Key": service.apiKey },
+    })
+  : null;
 
 export async function seerrSummary(client: HttpClient): Promise<ServiceSummary> {
   const [status, requests] = await Promise.all([
