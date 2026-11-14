@@ -6,7 +6,7 @@ import { getFlag, getSetting } from "@/lib/settings/store";
 import { createHttpClient, type HttpClient } from "../http";
 import { errorResult, type IntegrationResult } from "../result";
 import { createTlsAgent } from "../tls";
-import { getGuestAddresses } from "./addresses";
+import { getGuestNetworks, type GuestNetworks } from "./addresses";
 import {
   guestSchema,
   responseSchema,
@@ -54,7 +54,7 @@ async function request<T extends z.ZodType>(
   return schema.parse((await client[method](path, responseSchema)).data);
 }
 
-export type GuestWithAddresses = ProxmoxGuest & { addresses: string[] };
+export type GuestWithAddresses = ProxmoxGuest & GuestNetworks;
 
 export type ProxmoxOverview = {
   nodes: ProxmoxNode[];
@@ -71,7 +71,7 @@ export async function getProxmoxOverview(): Promise<IntegrationResult<ProxmoxOve
     ]);
     const visible = guests.filter((guest) => !guest.template).sort((a, b) => a.vmid - b.vmid);
     const withAddresses = await Promise.all(
-      visible.map(async (guest) => ({ ...guest, addresses: await getGuestAddresses(client, guest) })),
+      visible.map(async (guest) => ({ ...guest, ...(await getGuestNetworks(client, guest)) })),
     );
     return {
       status: "ok",

@@ -4,10 +4,14 @@ import { isIPv4 } from "node:net";
 import type { GuestWithAddresses } from "./proxmox";
 import type { ServiceStatus } from "./services";
 
-// Places services under the Proxmox guest they run on, by matching the IP in
-// (or behind) the service's URL with the guest's addresses. Services whose
-// host is a Docker container name (http://sonarr:8989) resolve to a Docker
-// network address, not the guest's LAN IP, so they stay unplaced.
+// Places services under the Proxmox guest they run on:
+// 1. the service's address is one of the guest's LAN addresses
+//    (URL with an IP, or a hostname resolving to it), or
+// 2. it lies in one of the guest's Docker networks. That is the case for
+//    container-name URLs (http://sonarr:8989): Docker resolves them to an
+//    internal address of the Docker host running the container.
+// Docker reuses the same internal ranges on every host, so when an address
+// fits more than one guest the service is left unplaced rather than guessed.
 
 const CACHE_MS = 5 * 60_000;
 const resolved = new Map<string, { at: number; ips: string[] }>();
@@ -23,21 +27,42 @@ async function hostAddresses(host: string): Promise<string[]> {
   return ips;
 }
 
+function ipToInt(ip: string): number {
+  return ip.split(".").reduce((value, octet) => (value << 8) + Number(octet), 0) >>> 0;
+}
+
+function inNetwork(ip: string, cidr: string): boolean {
+  const [network, prefixText] = cidr.split("/");
+  const prefix = Number(prefixText);
+  if (!isIPv4(network) || !(prefix >= 0 && prefix <= 32)) return false;
+  const mask = prefix === 0 ? 0 : (~0 << (32 - prefix)) >>> 0;
+  return ((ipToInt(ip) & mask) >>> 0) === ((ipToInt(network) & mask) >>> 0);
+}
+
 export function guestKey(guest: Pick<GuestWithAddresses, "node" | "vmid">): string {
   return `${guest.node}/${guest.vmid}`;
+}
+
+function ownerOf(ips: string[], guests: GuestWithAddresses[]): string | undefined {
+  for (const ip of ips) {
+    const byAddress = guests.find((guest) => guest.addresses.includes(ip));
+    if (byAddress) return guestKey(byAddress);
+  }
+  for (const ip of ips) {
+    const candidates = guests.filter((guest) => guest.dockerNetworks.some((cidr) => inNetwork(ip, cidr)));
+    if (candidates.length === 1) return guestKey(candidates[0]);
+  }
+  return undefined;
 }
 
 export async function placeServices(
   guests: GuestWithAddresses[],
   services: ServiceStatus[],
 ): Promise<Map<string, ServiceStatus[]>> {
-  const owner = new Map<string, string>();
-  for (const guest of guests) for (const ip of guest.addresses) owner.set(ip, guestKey(guest));
-
   const placed = new Map<string, ServiceStatus[]>();
   await Promise.all(
     services.map(async (service) => {
-      const key = (await hostAddresses(service.host)).map((ip) => owner.get(ip)).find(Boolean);
+      const key = ownerOf(await hostAddresses(service.host), guests);
       if (key) placed.set(key, [...(placed.get(key) ?? []), service]);
     }),
   );

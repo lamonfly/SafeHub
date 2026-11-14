@@ -4,7 +4,7 @@ Self-hosted dashboard for a home lab. One page to see and control your servers a
 
 ## Features
 
-- **Proxmox:** each node with its VMs and LXCs as a tree: CPU, RAM, uptime, IP address, and the services running on each guest (matched by IP; VMs need the QEMU guest agent). Start, shut down, reboot, force stop and resume; destructive actions ask first.
+- **Proxmox:** each node with its VMs and LXCs as a tree: CPU, RAM, uptime, IP address, and the services running on each guest (matched by IP, including apps in Docker inside a guest; VMs need the QEMU guest agent). Start, shut down, reboot, force stop and resume; destructive actions ask first.
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
 - **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr) and Immich. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders.
 - **History:** CPU, memory and disk usage of the NAS, Proxmox nodes and guests, recorded every minute. 24-hour trend lines on the dashboard; tap a name for charts over 24 hours, 7, 30 or 90 days.
