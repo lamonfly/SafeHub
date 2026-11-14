@@ -36,6 +36,13 @@
       "when": 1794622672397,
       "tag": "0004_drop_wol_device",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794622976913,
+      "tag": "0005_drop_scanner",
+      "breakpoints": true
     }
   ]
 }

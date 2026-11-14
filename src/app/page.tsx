@@ -1,5 +1,4 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ProxmoxCard } from "@/components/proxmox/proxmox-card";
 import { ServicesCard } from "@/components/services/services-card";
@@ -26,9 +25,6 @@ export default async function DashboardPage() {
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">SafeHub</h1>
         <form action={signOut} className="flex items-center gap-3 text-sm">
-          <Link href="/scanner" className="text-foreground/70 hover:underline">
-            Scanner
-          </Link>
           <span className="text-foreground/70">{user.name}</span>
           <button
             type="submit"

@@ -14,14 +14,6 @@ export function formatPercent(fraction: number): string {
   return `${Math.round(fraction * 100)}%`;
 }
 
-export function formatTimeAgo(date: Date): string {
-  const seconds = Math.round((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  if (seconds < 3_600) return `${Math.floor(seconds / 60)} min ago`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3_600)} h ago`;
-  return `${Math.floor(seconds / 86_400)} d ago`;
-}
-
 export function formatUptime(seconds: number): string {
   if (seconds <= 0) return "—";
   const days = Math.floor(seconds / 86_400);

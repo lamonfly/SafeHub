@@ -3,8 +3,6 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
   // Self-contained server in .next/standalone, used by the Docker image.
   output: "standalone",
-  // 5 MB JSON vendor list: load with Node at runtime instead of bundling it.
-  serverExternalPackages: ["oui-data"],
   turbopack: {
     rules: {
       "*.css": {

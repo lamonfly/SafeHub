@@ -1,32 +1,64 @@
-# SafeHub. `docker compose up -d`, then open http://<this machine>:3000.
-# Everything is optional; add service settings when you want them, either
-# below under `environment:` or in a .env file next to this one.
+# SafeHub: `docker compose up -d`, then open http://<this machine>:3000
+# All settings are optional: uncomment what you use. Details: README.md
 services:
   safehub:
     build:
       context: https://github.com/lamonfly/SafeHub.git#main
     image: safehub:latest
     container_name: safehub
-    # Host networking: the scanner needs it to see MAC addresses
-    # (ARP only works on the same network). The app listens directly on the host's PORT.
-    network_mode: host
+    ports:
+      - "3000:3000"
     env_file:
       - path: .env
         required: false
     environment:
-      # Owner of ./data on the host (Synology users are often 1026 / 100).
       PUID: 1000
       PGID: 1000
-      # PORT: 3000
-      # Service settings, e.g.:
+      # DATABASE_PATH: ./data/safehub.db
+
+      # Login (secret is auto-generated; URL only behind HTTPS)
+      # BETTER_AUTH_SECRET:
+      # BETTER_AUTH_URL: https://safehub.example.lan
+      # BETTER_AUTH_TRUSTED_ORIGINS: http://192.168.1.20:3000
+
+      # Proxmox
       # PROXMOX_URL: https://192.168.1.10:8006
       # PROXMOX_TOKEN_ID: root@pam!safehub
-      # PROXMOX_TOKEN_SECRET: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-      # SONARR_URL: http://127.0.0.1:8989
-      # SONARR_API_KEY: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-    # Left: folders next to this file. Right: where the app sees them (it
-    # runs in /app, so relative paths like ./certs/ca.pem work in settings).
+      # PROXMOX_TOKEN_SECRET:
+      # PROXMOX_CA_CERT_PATH: ./certs/pve-root-ca.pem
+      # PROXMOX_ALLOW_SELF_SIGNED: "true"
+
+      # Synology
+      # SYNOLOGY_URL: https://192.168.1.11:5001
+      # SYNOLOGY_USERNAME:
+      # SYNOLOGY_PASSWORD:
+      # SYNOLOGY_CA_CERT_PATH: ./certs/synology-ca.pem
+      # SYNOLOGY_ALLOW_SELF_SIGNED: "true"
+
+      # Services
+      # SONARR_URL: http://192.168.1.20:8989
+      # SONARR_API_KEY:
+      # RADARR_URL: http://192.168.1.20:7878
+      # RADARR_API_KEY:
+      # PROWLARR_URL: http://192.168.1.20:9696
+      # PROWLARR_API_KEY:
+      # BAZARR_URL: http://192.168.1.20:6767
+      # BAZARR_API_KEY:
+      # JELLYFIN_URL: http://192.168.1.20:8096
+      # JELLYFIN_API_KEY:
+      # SEERR_URL: http://192.168.1.20:5055
+      # SEERR_API_KEY:
+      # IMMICH_URL: http://192.168.1.20:2283
+      # IMMICH_API_KEY:
+      # CADDY_ADMIN_URL: http://caddy:2019
     volumes:
       - ./data:/app/data
       - ./certs:/app/certs:ro
     restart: unless-stopped
+    # To reach another stack's containers by name (http://sonarr:8989):
+    # networks: [default, servarr]
+
+# networks:
+#   servarr:
+#     external: true
+#     name: servarr_default

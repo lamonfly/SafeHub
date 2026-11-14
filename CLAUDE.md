@@ -8,7 +8,6 @@ Self-hosted home server dashboard and monitor. One place to view, monitor and co
 
 - **Dashboard**: status, health and key stats for every host and service.
 - **Control**: start/stop/restart VMs, LXCs and containers; trigger service actions (scans, refreshes, requests).
-- **Network scanner**: discover hosts on the LAN (IP, MAC, hostname, vendor) and scan open ports.
 - **Monitoring**: uptime history, resource usage (CPU, RAM, disk, network), alerts.
 
 ## Infrastructure being managed
@@ -62,12 +61,9 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 - UI in `src/components/<service>/`: a Server Component card that renders all three states, client components for buttons, and a `"use server"` actions file that calls `requireSession()`, validates input, then calls `refresh()`.
 - The dashboard re-renders every 10 s via `<AutoRefresh>` (paused when the tab is hidden).
 
-## Network features
+## Removed features
 
-- `src/lib/net/`: shared helpers. `ip.ts` (private-range check), `probe.ts` (TCP connect probe: open / closed (refused) / filtered (timeout), plus `mapLimit` for bounded concurrency).
-- `src/lib/net/`: also `subnet.ts` (CIDR math, local subnets), `arp.ts` (neighbor cache with entry states via `ip -j neigh` on Linux, falling back to `/proc/net/arp`; `arp -a` elsewhere. The scanner waits for pending entries and ignores stale ones), `vendor.ts` (MAC vendor via `oui-data`, kept out of the bundle by `serverExternalPackages`), `ports.ts` (discovery ports, named top ports, port list parser).
-- `src/lib/scanner/`: TCP connect discovery plus ARP cache, reverse DNS, port scans. One scan at a time (in-process lock). Ranges are private only, /22 at most. Results in `scan_run` and `network_host` (keyed by MAC, or `ip:<addr>` when no MAC). UI at `/scanner`.
-- Wake on LAN was removed on purpose (owner has no use for it); its table is dropped by migration `0004`. Do not re-add it unless asked.
+- Wake on LAN and the network scanner were removed on purpose (owner has no use for them); migrations `0004` and `0005` drop their tables. Without them SafeHub needs no host networking. Do not re-add either unless asked.
 
 ## Auth and database
 
@@ -83,16 +79,14 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 
 - **All integrations run server-side.** API keys, tokens and passwords never reach the browser. Use Route Handlers, Server Actions or Server Components to call home lab APIs.
 - **One adapter per integration** under `src/lib/integrations/<name>/` (e.g. `proxmox`, `synology`, `sonarr`). Each adapter exposes typed functions and hides HTTP details. UI code never calls a service API directly.
-- **Validate all external data** at the adapter boundary (response shapes) and at the action boundary (user input, IPs, port ranges, MAC addresses).
+- **Validate all external data** at the adapter boundary (response shapes) and at the action boundary (user input).
 - **Fail soft.** A service being down must not break the dashboard. Every adapter returns a clear offline/error state; use timeouts on every request.
 - **Self-signed certificates**: Proxmox and DSM often use self-signed certs. Handle TLS trust per integration (custom CA or explicit opt-in flag), never globally via `NODE_TLS_REJECT_UNAUTHORIZED=0`.
-- **Network features need LAN access.** ARP-level scanning (MAC addresses, vendors) only works when the server runs on the same L2 network with host networking (no Docker bridge).
-- **Privileged operations** (raw sockets, nmap SYN scans) need elevated rights. Prefer unprivileged TCP connect scans by default.
 
 ## Deployment
 
-- **Web app, not native mobile.** Phones get it as an installable PWA. Native apps cannot do background monitoring, are blocked from ARP/MAC scanning, and would hold every API key on the device.
-- **Host: the Proxmox mini PC** (decided), inside the existing Docker guest (LXC or VM), never on the Proxmox host itself. The guest must be bridged to the LAN (`vmbr0`) so the scanner sees other machines' MAC addresses. Ship as a Docker image with `network_mode: host`. The NAS stays a possible fallback host; the code does not depend on which one.
+- **Web app, not native mobile.** Phones get it as an installable PWA. Native apps cannot do background monitoring and would hold every API key on the device.
+- **Host: the Proxmox mini PC** (decided), inside the existing Docker guest (LXC or VM), never on the Proxmox host itself. Normal Docker networking: port 3000 mapped, and SafeHub can join the servarr stack's network to reach containers by name (`http://sonarr:8989`). The NAS stays a possible fallback host; the code does not depend on which one.
 - **Zero-config start:** `compose.yaml` + `docker compose up -d` must be enough. Never add a setting the app cannot start without: the login secret is generated into `data/auth-secret`, `BETTER_AUTH_URL` is optional (unset means plain cookies, see `lib/auth.ts`), `.env` is optional (`required: false`), and `docker-entrypoint.sh` chowns `/app/data` then drops to PUID/PGID with `setpriv`. New settings need a safe default, or their feature shows as "not configured".
 - **Docker:** `Dockerfile` builds Next's `output: "standalone"` server (Debian slim, healthcheck on `/api/health`, app runs unprivileged via the entrypoint). `compose.yaml` builds from the GitHub repo, mounts `./data` (SQLite + secret) and `./certs` (CA files, read-only), and takes settings from `environment:` or an optional `.env`. Paths in settings stay relative to `/app`. The build uses placeholder env values; real config is runtime-only. Copy any new runtime folder (like `drizzle/`) into the runner stage. `.sh` files and the Dockerfile keep LF endings (`.gitattributes`). Deploy steps and the settings table live in `README.md`; keep both in sync when adding env vars.
 - **If the mini PC is down, the dashboard is down.** Keep the app small enough that moving it between hosts is easy.
@@ -105,7 +99,6 @@ This app can power machines on/off and control services. Treat it as an admin to
 - Require authentication on every page and API route. No anonymous access.
 - Never expose it to the internet directly. Access via LAN, VPN or Caddy with auth.
 - Destructive or disruptive actions (shutdown, stop VM, restart container) need an explicit confirmation in the UI.
-- Restrict scanner targets to private ranges (RFC 1918) by default.
 - Secrets live in `.env.local` (gitignored) in development; in deployment in `compose.yaml` or `.env`. Keep `.env.example` updated with every variable name and no values.
 
 ## Conventions

@@ -26,10 +26,6 @@ RUN BETTER_AUTH_SECRET=build-only-placeholder-not-used-at-runtime \
     npm run build
 
 FROM base AS runner
-# iproute2: `ip neigh` gives the scanner ARP entry states (stale vs. live).
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends iproute2 \
-  && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
@@ -59,8 +55,7 @@ RUN if [ -d .next/node_modules ]; then \
 RUN mkdir -p /app/data /app/certs
 
 # The entrypoint fixes /app/data ownership, then drops to PUID/PGID (default
-# 1000) with setpriv. The app itself never runs as root: TCP scans and
-# reading the ARP table need no extra capabilities.
+# 1000) with setpriv. The app itself never runs as root.
 COPY --from=build /app/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh && command -v setpriv
 VOLUME ["/app/data"]
