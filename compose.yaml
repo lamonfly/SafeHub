@@ -3,9 +3,9 @@
 # and win over the Settings page. Details: README.md
 services:
   safehub:
-    build:
-      context: https://github.com/lamonfly/SafeHub.git#main
-    image: safehub:latest
+    # Built and tested by GitHub on every change to main.
+    # Update: docker compose pull && docker compose up -d
+    image: ghcr.io/lamonfly/safehub:latest
     container_name: safehub
     ports:
       - "3000:3000"

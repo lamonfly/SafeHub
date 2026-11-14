@@ -40,7 +40,7 @@ curl -fsSL -O https://raw.githubusercontent.com/lamonfly/SafeHub/main/compose.ya
 docker compose up -d
 ```
 
-The first start builds the image from GitHub (a few minutes). Then open `http://<machine IP>:3000`, create your account on `/setup`, and add your services under **Settings**. Everything else is automatic: the `data` folder and its permissions, the login secret (`data/auth-secret`) and the database.
+The first start downloads the image (built and tested by GitHub on every change). Then open `http://<machine IP>:3000`, create your account on `/setup`, and add your services under **Settings**. Everything else is automatic: the `data` folder and its permissions, the login secret (`data/auth-secret`) and the database.
 
 ## Automatic setup for Sonarr, Radarr, Prowlarr, Bazarr and Seerr
 
@@ -95,7 +95,14 @@ The container starts as root only to make `./data` writable, then runs SafeHub a
 
 **Paths:** keep every path in settings relative (`DATABASE_PATH=./data/safehub.db`, `PROXMOX_CA_CERT_PATH=./certs/pve-root-ca.pem` if you use one). The app runs in `/app` inside the container, where `./data` and `./certs` are mounted from the project folder, so the same values work in Docker and in development.
 
-**Update:** `docker compose up -d --build` fetches the latest `main` from GitHub and restarts. Database migrations run automatically on start.
+**Update:** `docker compose pull && docker compose up -d`. Database migrations run automatically on start. The header shows a badge when a newer version exists.
+
+**Build from source instead** (e.g. to test changes): replace the `image:` line in `compose.yaml` with
+```yaml
+    build:
+      context: https://github.com/lamonfly/SafeHub.git#main
+```
+and update with `docker compose up -d --build`.
 
 **Forgot the password:** there is no reset email. Delete the account and `/setup` opens again (nothing else is lost):
 ```bash
@@ -112,9 +119,7 @@ Add to your `compose.yaml` under `services:` (the full list of settings is in th
 
 ```yaml
   safehub:
-    build:
-      context: https://github.com/lamonfly/SafeHub.git#main
-    image: safehub:latest
+    image: ghcr.io/lamonfly/safehub:latest
     container_name: safehub
     ports:
       - "3000:3000"
@@ -151,7 +156,7 @@ Services on other machines (Proxmox, Synology, anything outside this stack) use 
 Start, update and logs:
 
 ```bash
-docker compose up -d --build safehub     # first start, and after every update (pulls latest main)
+docker compose pull safehub && docker compose up -d safehub     # first start and every update
 docker compose logs -f safehub
 ```
 
@@ -176,6 +181,15 @@ docker compose logs -f safehub
 cp .env.example .env.local   # optional: service settings
 npm install
 npm run dev                  # http://localhost:3000
+```
+
+Checks (GitHub runs all of them on every push; an image is only published when they pass):
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm test                     # unit and integration tests (Vitest)
+npm run build && npm run test:smoke   # starts the production build and opens every page
 ```
 
 See `CLAUDE.md` for architecture and conventions. After changing the database schema: `npm run db:generate`, then `npm run db:migrate` (or restart the dev server).

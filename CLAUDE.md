@@ -41,6 +41,8 @@ npm run dev     # dev server
 npm run build   # production build
 npm run start   # run production build
 npm run lint    # eslint
+npm test        # Vitest: unit + integration tests (src/**/*.test.ts, tests/)
+npm run test:smoke   # after build: runs the standalone server, opens every page
 npm run db:generate  # create a migration after changing src/db/schema
 npm run db:migrate   # apply new migrations to the dev DB without restarting
 npm run db:studio    # browse the database
@@ -94,7 +96,7 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 - **Web app, not native mobile.** Phones get it as an installable PWA. Native apps cannot do background monitoring and would hold every API key on the device.
 - **Host: the Proxmox mini PC** (decided), inside the existing Docker guest (LXC or VM), never on the Proxmox host itself. Normal Docker networking: port 3000 mapped, and SafeHub can join the servarr stack's network to reach containers by name (`http://sonarr:8989`). The NAS stays a possible fallback host; the code does not depend on which one.
 - **Zero-config start:** `compose.yaml` + `docker compose up -d` must be enough. Never add a setting the app cannot start without: the login secret is generated into `data/auth-secret`, `BETTER_AUTH_URL` is optional (unset means plain cookies, see `lib/auth.ts`), `.env` is optional (`required: false`), and `docker-entrypoint.sh` chowns `/app/data` then drops to PUID/PGID with `setpriv`. New settings need a safe default, or their feature is hidden until configured.
-- **Docker:** `Dockerfile` builds Next's `output: "standalone"` server (Debian slim, healthcheck on `/api/health`, app runs unprivileged via the entrypoint). `compose.yaml` builds from the GitHub repo, mounts `./data` (SQLite + secret) and `./certs` (CA files, read-only), and takes settings from `environment:` or an optional `.env`. Paths in settings stay relative to `/app`. The build uses placeholder env values; real config is runtime-only. Copy any new runtime folder (like `drizzle/`) into the runner stage. `.sh` files and the Dockerfile keep LF endings (`.gitattributes`). Deploy steps and the settings table live in `README.md`; keep both in sync when adding env vars.
+- **Docker:** `Dockerfile` builds Next's `output: "standalone"` server (Debian slim, healthcheck on `/api/health`, app runs unprivileged via the entrypoint). `compose.yaml` uses the published image `ghcr.io/lamonfly/safehub:latest`, mounts `./data` (SQLite + secret) and `./certs` (CA files, read-only), and takes settings from `environment:` or an optional `.env`. Paths in settings stay relative to `/app`. The build uses placeholder env values; real config is runtime-only. Copy any new runtime folder (like `drizzle/`) into the runner stage. `.sh` files and the Dockerfile keep LF endings (`.gitattributes`). Deploy steps and the settings table live in `README.md`; keep both in sync when adding env vars.
 - **If the mini PC is down, the dashboard is down.** Keep the app small enough that moving it between hosts is easy.
 - **Remote access via Tailscale/WireGuard** to the host. Never port-forward the app to the internet.
 
@@ -128,6 +130,12 @@ This app can power machines on/off and control services. Treat it as an admin to
 - Polling/live data via client hooks with sensible intervals; avoid hammering service APIs.
 - Keep components small; shared UI in `src/components/`.
 - Write normal, descriptive names; no abbreviations.
+
+## Tests and CI
+
+- `.github/workflows/ci.yml`: on every push and PR runs lint, `tsc`, `npm test`, build and `npm run test:smoke`. Only on `main`, and only if that passed, it publishes `ghcr.io/lamonfly/safehub:latest` (+ `sha-<short>`). Never push a change that fails these locally.
+- Tests run in separate processes, each with its own temporary database (`tests/support/setup.ts` also clears integration env vars so a developer's `.env.local` cannot leak in). Modules read env and the database at import: set `process.env` first, then `await import(...)` inside `beforeAll`. Use `tests/support/helpers.ts` for fake HTTP/HTTPS services and throwaway certificates (`selfsigned`); never commit keys or certificates.
+- Add a test with every behaviour change: pure logic next to the code (`*.test.ts`), cross-cutting checks in `tests/`. `tests/client-boundary.test.ts` enforces that `"use client"` files export only components and hooks. New pages go into the smoke test's list in `scripts/smoke-test.mts`.
 
 ## Git
 
