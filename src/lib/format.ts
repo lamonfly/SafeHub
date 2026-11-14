@@ -7,7 +7,8 @@ export function formatBytes(bytes: number): string {
     value /= 1024;
     unit++;
   }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${byteUnits[unit]}`;
+  // One decimal only while it adds information: 8.5 GiB, but 570 GiB.
+  return `${value.toFixed(unit === 0 || value >= 100 ? 0 : 1)} ${byteUnits[unit]}`;
 }
 
 export function formatPercent(fraction: number): string {

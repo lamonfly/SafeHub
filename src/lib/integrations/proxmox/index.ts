@@ -6,6 +6,7 @@ import { getFlag, getSetting } from "@/lib/settings/store";
 import { createHttpClient, type HttpClient } from "../http";
 import { errorResult, type IntegrationResult } from "../result";
 import { createTlsAgent } from "../tls";
+import { getGuestAddresses } from "./addresses";
 import {
   guestSchema,
   responseSchema,
@@ -53,9 +54,11 @@ async function request<T extends z.ZodType>(
   return schema.parse((await client[method](path, responseSchema)).data);
 }
 
+export type GuestWithAddresses = ProxmoxGuest & { addresses: string[] };
+
 export type ProxmoxOverview = {
   nodes: ProxmoxNode[];
-  guests: ProxmoxGuest[];
+  guests: GuestWithAddresses[];
 };
 
 export async function getProxmoxOverview(): Promise<IntegrationResult<ProxmoxOverview>> {
@@ -66,12 +69,13 @@ export async function getProxmoxOverview(): Promise<IntegrationResult<ProxmoxOve
       request(client, "get", "nodes", z.array(nodeSchema)),
       request(client, "get", "cluster/resources?type=vm", z.array(guestSchema)),
     ]);
+    const visible = guests.filter((guest) => !guest.template).sort((a, b) => a.vmid - b.vmid);
+    const withAddresses = await Promise.all(
+      visible.map(async (guest) => ({ ...guest, addresses: await getGuestAddresses(client, guest) })),
+    );
     return {
       status: "ok",
-      data: {
-        nodes: nodes.sort((a, b) => a.node.localeCompare(b.node)),
-        guests: guests.filter((guest) => !guest.template).sort((a, b) => a.vmid - b.vmid),
-      },
+      data: { nodes: nodes.sort((a, b) => a.node.localeCompare(b.node)), guests: withAddresses },
     };
   } catch (error) {
     return errorResult(error);

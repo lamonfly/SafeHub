@@ -107,6 +107,14 @@ This app can power machines on/off and control services. Treat it as an admin to
 - Destructive or disruptive actions (shutdown, stop VM, restart container) need an explicit confirmation in the UI.
 - Secrets live in `.env.local` (gitignored) in development; in deployment in `compose.yaml` or `.env`. Keep `.env.example` updated with every variable name and no values.
 
+## UI
+
+- **Material Design 3.** Colors are M3 roles defined once in `src/app/globals.css` (light + dark) and used as Tailwind colors (`bg-surface-container-low`, `text-on-surface-variant`, `bg-primary` ...). Never use raw Tailwind palette colors (`red-500`) or ad-hoc grays. Font: Roboto.
+- Build pages from `src/components/ui/`: `Card`/`Tile`, `Button` (filled, tonal, outlined, text, danger), `TextField`/`Checkbox`, `Banner`, `StatusDot`, `UsageBar`, `useConfirm()` (M3 dialog; never `window.confirm`). Pages use `AppHeader` + `PageBody`.
+- **Mobile first.** Touch targets at least 48 px; content in one column on phones; no wide tables (use list rows that stack, see the Proxmox card); respect safe-area insets (`env(safe-area-inset-*)`); text inputs 16 px and `autoCapitalize="none"` for names/URLs. Check new screens at 390 px wide.
+- **PWA:** `app/manifest.ts`, icons from `lib/app-icon.tsx` (`/icon`, `/apple-icon`, `/pwa-icon/*`). These and the manifest are public in `proxy.ts`.
+- **Proxmox tree:** guests are grouped under their node; `proxmox/addresses.ts` gets guest IPv4s (LXC interfaces, VM guest agent; Docker/virtual bridges ignored; cached 5 min) and `placement.ts` puts services under the guest whose IP their URL host resolves to. Container-name URLs cannot be placed.
+
 ## Conventions
 
 - Server Components by default; add `"use client"` only for interactivity.

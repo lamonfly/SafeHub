@@ -42,6 +42,8 @@ export type ServiceStatus = {
   key: string;
   name: string;
   url?: string;
+  // Host SafeHub talks to (IP or name), used to place the service on a guest.
+  host: string;
   result: IntegrationResult<ServiceSummary>;
 };
 
@@ -68,6 +70,7 @@ const statusFetcher = perSettings(() =>
         key,
         name,
         url: urlSetting ? getSetting(urlSetting) : undefined,
+        host: client.baseUrl.hostname,
         result: await attempt(() => summary(client)),
       })),
     ),

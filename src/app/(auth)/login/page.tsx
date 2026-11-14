@@ -12,7 +12,7 @@ export default async function LoginPage() {
 
   return (
     <>
-      <h1 className="mb-6 text-2xl font-semibold">Sign in to SafeHub</h1>
+      <h1 className="text-2xl leading-8 text-on-surface">Sign in to SafeHub</h1>
       <AuthForm
         action={signIn}
         submitLabel="Sign in"

@@ -4,11 +4,12 @@ Self-hosted dashboard for a home lab. One page to see and control your servers a
 
 ## Features
 
-- **Proxmox:** node CPU, RAM and uptime; VMs and LXCs with start, shut down, reboot, force stop and resume (destructive actions ask first).
+- **Proxmox:** each node with its VMs and LXCs as a tree: CPU, RAM, uptime, IP address, and the services running on each guest (matched by IP; VMs need the QEMU guest agent). Start, shut down, reboot, force stop and resume; destructive actions ask first.
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
 - **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr), Immich and Caddy. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders.
 - **Settings page:** add and change services in the browser; no file editing or restart. Proxmox can be connected with an admin login: SafeHub creates its own limited user and token.
 - **Update notice:** a badge in the header when GitHub has a newer version.
+- **Material Design 3, built for phones:** large touch targets, light and dark mode, installable as an app (Add to Home screen).
 - **Fails soft:** an unconfigured or unreachable service shows its own error; the rest of the dashboard keeps working.
 - **Single admin login**, SQLite storage, no telemetry. The only outgoing request of its own is the update check to GitHub, which can be turned off.
 

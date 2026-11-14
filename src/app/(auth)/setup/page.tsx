@@ -11,17 +11,18 @@ export default async function SetupPage() {
 
   return (
     <>
-      <h1 className="mb-2 text-2xl font-semibold">Welcome to SafeHub</h1>
-      <p className="mb-6 text-sm text-foreground/70">
-        Create the admin account. Sign-up closes after this.
-      </p>
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl leading-8 text-on-surface">Welcome to SafeHub</h1>
+        <p className="text-sm text-on-surface-variant">Create the admin account. Sign-up closes after this.</p>
+      </div>
       <AuthForm
         action={createAdmin}
         submitLabel="Create account"
         fields={[
           {
             name: "username",
-            label: "Username (letters, digits, _ and .)",
+            label: "Username",
+            supportingText: "Letters, digits, _ and .",
             type: "text",
             autoComplete: "username",
           },

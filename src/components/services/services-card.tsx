@@ -1,56 +1,66 @@
+import { Card, Tile } from "@/components/ui/card";
+import { StatusDot } from "@/components/ui/status-dot";
 import { getServiceStatuses, type ServiceStatus } from "@/lib/integrations/services";
 
 function ServiceTile({ service }: { service: ServiceStatus }) {
   const { result } = service;
   const hasIssues = result.status === "ok" && result.data.issues.length > 0;
-  const dot = result.status === "error" ? "bg-red-500" : hasIssues ? "bg-yellow-500" : "bg-green-500";
+  const [tone, label] =
+    result.status === "error"
+      ? (["error", "Unreachable"] as const)
+      : hasIssues
+        ? (["warning", "Has warnings"] as const)
+        : (["success", "Running"] as const);
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-foreground/10 p-3">
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="flex items-center gap-2 font-medium">
-          <span className={`inline-block size-2 shrink-0 rounded-full ${dot}`} />
+    <Tile>
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex min-w-0 items-center gap-2">
+          <StatusDot tone={tone} label={label} />
           {service.url ? (
-            <a href={service.url} target="_blank" rel="noreferrer" className="hover:underline">
+            <a
+              href={service.url}
+              target="_blank"
+              rel="noreferrer"
+              className="truncate text-base font-medium text-on-surface hover:underline"
+            >
               {service.name}
             </a>
           ) : (
-            service.name
+            <span className="truncate text-base font-medium text-on-surface">{service.name}</span>
           )}
         </span>
         {result.status === "ok" && result.data.version && (
-          <span className="truncate text-xs text-foreground/50">v{result.data.version}</span>
+          <span className="shrink-0 truncate text-xs text-on-surface-variant">v{result.data.version}</span>
         )}
       </div>
 
-      {result.status === "error" && (
-        <p role="alert" className="text-xs break-words text-red-500">
-          {result.message}
-        </p>
-      )}
+      {result.status === "error" && <p className="text-sm break-words text-error">{result.message}</p>}
 
       {result.status === "ok" && (
         <>
           {result.data.stats.length > 0 && (
-            <dl className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            <dl className="grid grid-cols-[repeat(auto-fit,minmax(5.5rem,1fr))] gap-x-2 gap-y-3">
               {result.data.stats.map((stat) => (
-                <div key={stat.label} className="flex gap-1">
-                  <dt className="text-foreground/60">{stat.label}</dt>
-                  <dd className="tabular-nums">{stat.value}</dd>
+                <div key={stat.label} className="min-w-0">
+                  <dd className="text-[22px] leading-7 whitespace-nowrap text-on-surface tabular-nums">{stat.value}</dd>
+                  <dt className="truncate text-xs text-on-surface-variant">{stat.label}</dt>
                 </div>
               ))}
             </dl>
           )}
           {hasIssues && (
-            <ul className="flex flex-col gap-0.5 text-xs text-yellow-600 dark:text-yellow-400">
+            <ul className="flex flex-col gap-1 rounded-lg bg-warning-container px-3 py-2 text-xs text-on-warning-container">
               {result.data.issues.map((issue) => (
-                <li key={issue}>{issue}</li>
+                <li key={issue} className="break-words">
+                  {issue}
+                </li>
               ))}
             </ul>
           )}
         </>
       )}
-    </div>
+    </Tile>
   );
 }
 
@@ -61,13 +71,12 @@ export async function ServicesCard() {
   if (statuses.length === 0) return null;
 
   return (
-    <section className="rounded-lg border border-foreground/15 p-4">
-      <h2 className="mb-3 text-lg font-semibold">Services</h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <Card title="Services">
+      <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3">
         {statuses.map((service) => (
           <ServiceTile key={service.key} service={service} />
         ))}
       </div>
-    </section>
+    </Card>
   );
 }

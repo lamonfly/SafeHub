@@ -1,26 +1,32 @@
-// Horizontal bar for CPU, RAM and disk usage. Turns yellow at 75%, red at 90%.
+// M3 linear progress indicator used as a usage meter (CPU, RAM, disks).
+// The track color follows the level: primary, warning at 75 %, error at 90 %.
 export function UsageBar({ label, percent, detail }: { label: string; percent: number; detail?: string }) {
   const clamped = Math.min(Math.max(percent, 0), 100);
-  const color = clamped >= 90 ? "bg-red-500" : clamped >= 75 ? "bg-yellow-500" : "bg-green-500";
+  const [bar, track] =
+    clamped >= 90
+      ? ["bg-error", "bg-error-container"]
+      : clamped >= 75
+        ? ["bg-warning", "bg-warning-container"]
+        : ["bg-primary", "bg-primary-container"];
 
   return (
-    <div className="flex flex-col gap-1 text-sm">
+    <div className="flex flex-col gap-1.5 text-sm">
       <div className="flex justify-between gap-2">
-        <span>{label}</span>
-        <span className="text-foreground/70 tabular-nums">
+        <span className="truncate text-on-surface">{label}</span>
+        <span className="shrink-0 text-on-surface-variant tabular-nums">
           {detail ? `${detail} · ` : ""}
           {Math.round(clamped)}%
         </span>
       </div>
       <div
-        className="h-1.5 overflow-hidden rounded-full bg-foreground/10"
+        className={`flex h-1 gap-1 overflow-hidden rounded-full ${track}`}
         role="meter"
         aria-label={label}
         aria-valuenow={Math.round(clamped)}
         aria-valuemin={0}
         aria-valuemax={100}
       >
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${clamped}%` }} />
+        <div className={`h-full rounded-full ${bar}`} style={{ width: `${clamped}%` }} />
       </div>
     </div>
   );

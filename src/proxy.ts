@@ -14,6 +14,7 @@ export const config = {
   matcher: [
     // Each excluded path must end there or continue with "/", so e.g.
     // /loginx still goes through the proxy.
-    "/((?!(?:api/auth|api/health|login|setup|_next/static|_next/image|favicon\\.ico)(?:/|$)).*)",
+    // Icons and the manifest are public: phones fetch them before logging in.
+    "/((?!(?:api/auth|api/health|login|setup|_next/static|_next/image|icon|apple-icon|pwa-icon|manifest\\.webmanifest)(?:/|$)).*)",
   ],
 };

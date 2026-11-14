@@ -1,6 +1,9 @@
 "use client";
 
-import { useActionState, useTransition, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
+import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { Checkbox, TextField } from "@/components/ui/text-field";
 import type { FieldType } from "@/lib/settings/definitions";
 import { clearGroupAction, saveGroupAction, type SettingsState } from "./actions";
 
@@ -14,60 +17,52 @@ export type FieldState = {
   value?: string;
 };
 
-const inputClass =
-  "rounded-md border border-foreground/20 bg-transparent px-3 py-2 text-sm disabled:opacity-60";
+const LOCKED = "Set in compose.yaml / .env";
 
 function Feedback({ state }: { state: SettingsState }) {
   if (state.error) {
     return (
-      <span role="alert" className="text-sm text-red-500">
+      <span role="alert" className="text-sm text-error">
         {state.error}
       </span>
     );
   }
-  return state.message ? <span className="text-sm text-foreground/70">{state.message}</span> : null;
+  return state.message ? <span className="text-sm text-on-surface-variant">{state.message}</span> : null;
 }
 
 function Field({ field }: { field: FieldState }) {
   const locked = field.source === "env";
-  const lockedNote = locked ? "Set in compose.yaml / .env" : undefined;
 
   if (field.type === "flag") {
     return (
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          name={field.key}
-          defaultChecked={field.value === "true"}
-          disabled={locked}
-        />
-        {field.label}
-        {lockedNote && <span className="text-xs text-foreground/50">({lockedNote})</span>}
-      </label>
+      <Checkbox
+        name={field.key}
+        label={field.label}
+        supportingText={locked ? LOCKED : undefined}
+        defaultChecked={field.value === "true"}
+        disabled={locked}
+      />
     );
   }
 
   const placeholder =
-    field.type === "secret" && field.source
-      ? locked
-        ? "Set in compose.yaml / .env"
-        : "Saved. Leave empty to keep it."
-      : field.placeholder;
+    field.type === "secret" && field.source ? (locked ? LOCKED : "Saved. Leave empty to keep it.") : field.placeholder;
 
   return (
-    <label className="flex flex-col gap-1 text-sm">
-      {field.label}
-      <input
-        name={field.key}
-        type={field.type === "secret" ? "password" : "text"}
-        defaultValue={field.type === "secret" ? undefined : field.value}
-        placeholder={placeholder}
-        disabled={locked}
-        autoComplete="off"
-        className={inputClass}
-      />
-      {lockedNote && field.type !== "secret" && <span className="text-xs text-foreground/50">{lockedNote}</span>}
-    </label>
+    <TextField
+      label={field.label}
+      name={field.key}
+      type={field.type === "secret" ? "password" : field.type === "url" ? "url" : "text"}
+      inputMode={field.type === "url" ? "url" : undefined}
+      defaultValue={field.type === "secret" ? undefined : field.value}
+      placeholder={placeholder}
+      supportingText={locked && field.type !== "secret" ? LOCKED : undefined}
+      disabled={locked}
+      autoComplete="off"
+      autoCapitalize="none"
+      autoCorrect="off"
+      spellCheck={false}
+    />
   );
 }
 
@@ -75,41 +70,43 @@ export function GroupForm({ groupId, fields }: { groupId: string; fields: FieldS
   const [state, formAction, pending] = useActionState(saveGroupAction, {});
   const [clearState, setClearState] = useState<SettingsState>({});
   const [clearing, startClear] = useTransition();
+  const [confirm, dialog] = useConfirm();
   const hasSaved = fields.some((field) => field.source === "saved");
+  const allLocked = fields.every((field) => field.source === "env");
 
-  function clear() {
-    if (!window.confirm("Remove the saved settings for this service?")) return;
+  async function clear() {
+    const confirmed = await confirm({
+      title: "Remove saved settings?",
+      message: "The saved values for this service are deleted. Settings from compose.yaml / .env stay.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!confirmed) return;
     startClear(async () => setClearState(await clearGroupAction(groupId)));
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-3">
+    <form action={formAction} className="flex flex-col gap-4">
       <input type="hidden" name="group" value={groupId} />
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-x-4 gap-y-5 pt-2 sm:grid-cols-2">
         {fields.map((field) => (
           <Field key={field.key} field={field} />
         ))}
       </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-foreground px-3 py-1.5 text-sm font-medium text-background disabled:opacity-50"
-        >
-          {pending ? "Saving…" : "Save"}
-        </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {!allLocked && (
+          <Button type="submit" disabled={pending}>
+            {pending ? "Saving…" : "Save"}
+          </Button>
+        )}
         {hasSaved && (
-          <button
-            type="button"
-            onClick={clear}
-            disabled={clearing}
-            className="rounded-md border border-red-500/40 px-3 py-1.5 text-sm text-red-500 disabled:opacity-50"
-          >
+          <Button variant="danger" onClick={clear} disabled={clearing}>
             Remove
-          </button>
+          </Button>
         )}
         <Feedback state={state.error || state.message ? state : clearState} />
       </div>
+      {dialog}
     </form>
   );
 }

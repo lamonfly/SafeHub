@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import type { GuestAction, ProxmoxGuest } from "@/lib/integrations/proxmox/schemas";
 import { proxmoxGuestAction } from "./actions";
 
@@ -13,10 +15,10 @@ const labels: Record<GuestAction, string> = {
 };
 
 // Start and resume are harmless; everything else interrupts a guest.
-const confirmations: Partial<Record<GuestAction, string>> = {
-  shutdown: "Shut down",
-  reboot: "Reboot",
-  stop: "Force stop (like pulling the power cord)",
+const confirmations: Partial<Record<GuestAction, { message: string; danger?: boolean }>> = {
+  shutdown: { message: "Asks the guest to shut down cleanly." },
+  reboot: { message: "Restarts the guest. Running work is interrupted." },
+  stop: { message: "Cuts power immediately, like pulling the plug. Unsaved data can be lost.", danger: true },
 };
 
 export function GuestActions({
@@ -26,6 +28,7 @@ export function GuestActions({
 }) {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string>();
+  const [confirm, dialog] = useConfirm();
 
   // A paused guest must be resumed (or stopped); Proxmox rejects start.
   const actions: GuestAction[] =
@@ -35,10 +38,17 @@ export function GuestActions({
         ? ["resume", "stop"]
         : ["start"];
 
-  function run(action: GuestAction) {
-    const question = confirmations[action];
-    const label = guest.name ?? guest.vmid;
-    if (question && !window.confirm(`${question} ${label}?`)) return;
+  async function run(action: GuestAction) {
+    const confirmation = confirmations[action];
+    if (confirmation) {
+      const confirmed = await confirm({
+        title: `${labels[action]} ${guest.name ?? guest.vmid}?`,
+        message: confirmation.message,
+        confirmLabel: labels[action],
+        danger: confirmation.danger,
+      });
+      if (!confirmed) return;
+    }
 
     setError(undefined);
     startTransition(async () => {
@@ -53,27 +63,29 @@ export function GuestActions({
   }
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-1.5">
-      {actions.map((action) => (
-        <button
-          key={action}
-          type="button"
-          disabled={pending}
-          onClick={() => run(action)}
-          className={`rounded-md border px-2 py-1 text-xs disabled:opacity-50 ${
-            action === "stop"
-              ? "border-red-500/40 text-red-500"
-              : "border-foreground/20"
-          }`}
-        >
-          {labels[action]}
-        </button>
-      ))}
+    <div className="flex shrink-0 flex-col gap-1 md:items-end">
+      <div
+        className="grid gap-2 pl-[22px] md:flex md:pl-0"
+        style={{ gridTemplateColumns: `repeat(${actions.length}, minmax(0, 1fr))` }}
+      >
+        {actions.map((action) => (
+          <Button
+            key={action}
+            variant={action === "stop" ? "danger" : action === "start" || action === "resume" ? "tonal" : "outlined"}
+            disabled={pending}
+            onClick={() => run(action)}
+            className="px-1 text-[13px] whitespace-nowrap sm:text-sm md:px-4"
+          >
+            {labels[action]}
+          </Button>
+        ))}
+      </div>
       {error && (
-        <p role="alert" className="w-full text-right text-xs text-red-500">
+        <p role="alert" className="text-xs text-error">
           {error}
         </p>
       )}
+      {dialog}
     </div>
   );
 }
