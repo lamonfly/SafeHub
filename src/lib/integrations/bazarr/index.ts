@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { perSettings } from "@/lib/settings/memo";
+import { getSetting } from "@/lib/settings/store";
 import { resolveService } from "../discovery";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
 
@@ -15,15 +16,12 @@ const healthSchema = z.object({
 });
 
 // Explicit settings win; otherwise use what auto-setup found in ./appdata.
-const service = resolveService("bazarr", env.BAZARR_URL, env.BAZARR_API_KEY);
-
-export const bazarrClient: HttpClient | null = service
-  ? createHttpClient({
-      name: "Bazarr",
-      baseUrl: service.url,
-      headers: { "X-API-KEY": service.apiKey },
-    })
-  : null;
+export const getBazarrClient = perSettings((): HttpClient | null => {
+  const service = resolveService("bazarr", getSetting("BAZARR_URL"), getSetting("BAZARR_API_KEY"));
+  return service
+    ? createHttpClient({ name: "Bazarr", baseUrl: service.url, headers: { "X-API-KEY": service.apiKey } })
+    : null;
+});
 
 export async function bazarrSummary(client: HttpClient): Promise<ServiceSummary> {
   const [status, badges, health] = await Promise.all([

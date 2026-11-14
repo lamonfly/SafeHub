@@ -1,5 +1,6 @@
 # SafeHub: `docker compose up -d`, then open http://<this machine>:3000
-# All settings are optional: uncomment what you use. Details: README.md
+# Easiest: add services on the Settings page. Settings below are optional
+# and win over the Settings page. Details: README.md
 services:
   safehub:
     build:
@@ -52,6 +53,9 @@ services:
       # IMMICH_URL: http://192.168.1.20:2283
       # IMMICH_API_KEY:
       # CADDY_ADMIN_URL: http://caddy:2019
+
+      # Updates (checks GitHub every 6 hours)
+      # DISABLE_UPDATE_CHECK: "true"
     volumes:
       - ./data:/app/data
       - ./certs:/app/certs:ro

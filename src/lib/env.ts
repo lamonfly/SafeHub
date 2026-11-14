@@ -71,6 +71,9 @@ const envSchema = z.object({
   IMMICH_URL: optionalUrl,
   IMMICH_API_KEY: optionalSecret,
   CADDY_ADMIN_URL: optionalUrl,
+
+  // Turns off the update check against GitHub.
+  DISABLE_UPDATE_CHECK: optionalFlag,
 });
 
 type ParsedEnv = z.infer<typeof envSchema>;

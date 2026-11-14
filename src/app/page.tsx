@@ -1,13 +1,14 @@
 import { Suspense } from "react";
+import Link from "next/link";
+import { AppHeader } from "@/components/app-header";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ProxmoxCard } from "@/components/proxmox/proxmox-card";
 import { ServicesCard } from "@/components/services/services-card";
 import { SynologyCard } from "@/components/synology/synology-card";
-import { proxmoxConfigured } from "@/lib/integrations/proxmox";
-import { servicesConfigured } from "@/lib/integrations/services";
-import { synologyConfigured } from "@/lib/integrations/synology";
+import { isProxmoxConfigured } from "@/lib/integrations/proxmox";
+import { hasConfiguredServices } from "@/lib/integrations/services";
+import { isSynologyConfigured } from "@/lib/integrations/synology";
 import { requireSession } from "@/lib/session";
-import { signOut } from "./(auth)/actions";
 
 // Shown on first load while a card waits for its service (up to the request
 // timeout). Refreshes keep the old card on screen instead.
@@ -20,38 +21,33 @@ function CardFallback({ title }: { title: string }) {
   );
 }
 
-// Cards only appear for configured integrations; unconfigured ones are not
-// rendered at all, not even as a loading placeholder.
-const anythingConfigured = synologyConfigured || servicesConfigured || proxmoxConfigured;
-
 export default async function DashboardPage() {
   const { user } = await requireSession();
 
+  // Cards only appear for configured integrations; unconfigured ones are not
+  // rendered at all, not even as a loading placeholder. Settings can change
+  // at runtime (/settings), so this is checked on every request.
+  const show = {
+    synology: isSynologyConfigured(),
+    services: hasConfiguredServices(),
+    proxmox: isProxmoxConfigured(),
+  };
+  const anythingConfigured = show.synology || show.services || show.proxmox;
+
   return (
     <main className="flex flex-1 flex-col gap-6 p-6">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">SafeHub</h1>
-        <form action={signOut} className="flex items-center gap-3 text-sm">
-          <span className="text-foreground/70">{user.name}</span>
-          <button
-            type="submit"
-            className="rounded-md border border-foreground/20 px-3 py-1.5"
-          >
-            Sign out
-          </button>
-        </form>
-      </header>
-      {synologyConfigured && (
+      <AppHeader userName={user.name} />
+      {show.synology && (
         <Suspense fallback={<CardFallback title="Synology" />}>
           <SynologyCard />
         </Suspense>
       )}
-      {servicesConfigured && (
+      {show.services && (
         <Suspense fallback={<CardFallback title="Services" />}>
           <ServicesCard />
         </Suspense>
       )}
-      {proxmoxConfigured && (
+      {show.proxmox && (
         <Suspense fallback={<CardFallback title="Proxmox" />}>
           <ProxmoxCard />
         </Suspense>
@@ -60,8 +56,11 @@ export default async function DashboardPage() {
         <AutoRefresh intervalMs={10_000} />
       ) : (
         <p className="text-sm text-foreground/70">
-          Nothing to show yet. Add your services&apos; settings to <code>compose.yaml</code> (or{" "}
-          <code>.env</code>) and run <code>docker compose up -d</code>.
+          Nothing to show yet.{" "}
+          <Link href="/settings" className="underline">
+            Add your services in Settings
+          </Link>
+          .
         </p>
       )}
     </main>

@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { perSettings } from "@/lib/settings/memo";
+import { getSetting } from "@/lib/settings/store";
 import { resolveService, type DiscoverableApp } from "../discovery";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
 
@@ -16,10 +17,9 @@ const indexerStatusSchema = z.array(z.object({ indexerId: z.number() }));
 function arrClient(
   name: string,
   app: DiscoverableApp,
-  url?: string,
-  apiKey?: string,
+  prefix: string,
 ): HttpClient | null {
-  const service = resolveService(app, url, apiKey);
+  const service = resolveService(app, getSetting(`${prefix}_URL`), getSetting(`${prefix}_API_KEY`));
   return service
     ? createHttpClient({ name, baseUrl: service.url, headers: { "X-Api-Key": service.apiKey } })
     : null;
@@ -36,9 +36,9 @@ async function baseSummary(client: HttpClient, api: string) {
   };
 }
 
-export const sonarrClient = arrClient("Sonarr", "sonarr", env.SONARR_URL, env.SONARR_API_KEY);
-export const radarrClient = arrClient("Radarr", "radarr", env.RADARR_URL, env.RADARR_API_KEY);
-export const prowlarrClient = arrClient("Prowlarr", "prowlarr", env.PROWLARR_URL, env.PROWLARR_API_KEY);
+export const getSonarrClient = perSettings(() => arrClient("Sonarr", "sonarr", "SONARR"));
+export const getRadarrClient = perSettings(() => arrClient("Radarr", "radarr", "RADARR"));
+export const getProwlarrClient = perSettings(() => arrClient("Prowlarr", "prowlarr", "PROWLARR"));
 
 export async function sonarrSummary(client: HttpClient): Promise<ServiceSummary> {
   const [base, queue, missing] = await Promise.all([

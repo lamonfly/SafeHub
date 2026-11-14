@@ -7,8 +7,10 @@ Self-hosted dashboard for a home lab. One page to see and control your servers a
 - **Proxmox:** node CPU, RAM and uptime; VMs and LXCs with start, shut down, reboot, force stop and resume (destructive actions ask first).
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
 - **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr), Immich and Caddy. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders.
+- **Settings page:** add and change services in the browser; no file editing or restart. Proxmox can be connected with an admin login: SafeHub creates its own limited user and token.
+- **Update notice:** a badge in the header when GitHub has a newer version.
 - **Fails soft:** an unconfigured or unreachable service shows its own error; the rest of the dashboard keeps working.
-- **Single admin login**, SQLite storage, no external services or telemetry.
+- **Single admin login**, SQLite storage, no telemetry. The only outgoing request of its own is the update check to GitHub, which can be turned off.
 
 Built with Next.js, better-auth, Drizzle (SQLite) and Tailwind CSS.
 
@@ -36,7 +38,7 @@ curl -fsSL -O https://raw.githubusercontent.com/lamonfly/SafeHub/main/compose.ya
 docker compose up -d
 ```
 
-The first start builds the image from GitHub (a few minutes). Then open `http://<machine IP>:3000` and create your account on `/setup`. Everything else is automatic: the `data` folder and its permissions, the login secret (`data/auth-secret`) and the database. Add services whenever you like (next section).
+The first start builds the image from GitHub (a few minutes). Then open `http://<machine IP>:3000`, create your account on `/setup`, and add your services under **Settings**. Everything else is automatic: the `data` folder and its permissions, the login secret (`data/auth-secret`) and the database.
 
 ## Automatic setup for Sonarr, Radarr, Prowlarr, Bazarr and Seerr
 
@@ -62,14 +64,18 @@ Jellyfin, Immich, Proxmox and Synology still need their keys set once (next sect
 
 ## Settings and credentials
 
-Settings are environment variables. Put them either under `environment:` in `compose.yaml` or in an optional `.env` file next to it; [`.env.example`](.env.example) lists every one with setup notes. After a change, apply it with `docker compose up -d` (a plain `restart` does not reload settings). Anything without settings is simply hidden from the dashboard.
+The easiest way is the **Settings** page: values are saved encrypted in SafeHub's database and take effect immediately. Secret fields never show their saved value; leave them empty to keep it.
+
+Every setting is also an environment variable, for those who prefer files: under `environment:` in `compose.yaml` or in an optional `.env` next to it ([`.env.example`](.env.example) lists them all). These win over the Settings page, which shows them as locked; apply changes with `docker compose up -d`. Anything without settings is simply hidden from the dashboard.
+
+If the login secret changes, values saved on the Settings page can no longer be decrypted and must be entered again.
 
 | What | Create it in | Setting | Notes |
 |------|-------------|---------|-------|
 | SafeHub account (username + password) | SafeHub, `/setup` page | Stored in the database | First visit. Sign-up closes afterwards. No email needed. |
 | Login secret | Automatic (`data/auth-secret`) | `BETTER_AUTH_SECRET` (optional) | Only set it to choose your own. Changing it signs everyone out. |
 | HTTPS address (optional) | Your reverse proxy, e.g. Caddy | `BETTER_AUTH_URL=https://safehub.example.lan` | Only when SafeHub is served over HTTPS: enables Secure cookies. Leave unset for plain `http://<IP>:3000`. |
-| Proxmox API token | Proxmox UI: Datacenter → Permissions → API Tokens | `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET` | The secret is shown only once. |
+| Proxmox API token | Settings → Proxmox → **Connect with password** (creates user `safehub@pve` and its token; the password is not stored), or Proxmox UI: Datacenter → Permissions → API Tokens | `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET` | Connect needs an admin account without two-factor login. |
 | Proxmox / Synology certificates | Automatic: pinned on first connection | Optional: `*_CA_CERT_PATH=./certs/<ca>.pem` to verify against a CA instead | A changed certificate shows an "Accept new certificate" button on the card |
 | Synology user + password | DSM: Control Panel → User. Dedicated user, in `administrators`, 2FA off, all apps denied | `SYNOLOGY_URL`, `SYNOLOGY_USERNAME`, `SYNOLOGY_PASSWORD` | DSM 6 and 7 |
 | Sonarr / Radarr / Prowlarr / Bazarr API keys | Automatic (see above), or each app: Settings → General → API Key | `<APP>_URL`, `<APP>_API_KEY` | |

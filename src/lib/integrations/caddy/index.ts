@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { perSettings } from "@/lib/settings/memo";
+import { getSetting } from "@/lib/settings/store";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
 
 // Caddy's admin API has no auth. It only reports upstreams of reverse_proxy
@@ -13,9 +14,10 @@ const upstreamsSchema = z.array(
   }),
 );
 
-export const caddyClient: HttpClient | null = env.CADDY_ADMIN_URL
-  ? createHttpClient({ name: "Caddy", baseUrl: env.CADDY_ADMIN_URL })
-  : null;
+export const getCaddyClient = perSettings((): HttpClient | null => {
+  const url = getSetting("CADDY_ADMIN_URL");
+  return url ? createHttpClient({ name: "Caddy", baseUrl: url }) : null;
+});
 
 export async function caddySummary(client: HttpClient): Promise<ServiceSummary> {
   const upstreams = await client.get("reverse_proxy/upstreams", upstreamsSchema);

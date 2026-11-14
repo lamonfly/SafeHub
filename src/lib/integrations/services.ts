@@ -1,40 +1,41 @@
 import "server-only";
-import { env } from "@/lib/env";
+import { perSettings } from "@/lib/settings/memo";
+import { getSetting } from "@/lib/settings/store";
 import {
-  prowlarrClient,
+  getProwlarrClient,
+  getRadarrClient,
+  getSonarrClient,
   prowlarrSummary,
-  radarrClient,
   radarrSummary,
-  sonarrClient,
   sonarrSummary,
 } from "./arr";
-import { bazarrClient, bazarrSummary } from "./bazarr";
+import { bazarrSummary, getBazarrClient } from "./bazarr";
 import { cacheFor } from "./cache";
-import { caddyClient, caddySummary } from "./caddy";
+import { caddySummary, getCaddyClient } from "./caddy";
 import type { HttpClient, ServiceSummary } from "./http";
-import { immichClient, immichSummary } from "./immich";
-import { jellyfinClient, jellyfinSummary } from "./jellyfin";
+import { getImmichClient, immichSummary } from "./immich";
+import { getJellyfinClient, jellyfinSummary } from "./jellyfin";
 import { attempt, type IntegrationResult } from "./result";
-import { seerrClient, seerrSummary } from "./seerr";
+import { getSeerrClient, seerrSummary } from "./seerr";
 
 type ServiceDefinition = {
   key: string;
   name: string;
-  // Link for the tile title; the admin API of Caddy is not a web UI.
-  url?: string;
-  client: HttpClient | null;
+  // Setting holding the tile's link; Caddy's admin API is not a web UI.
+  urlSetting?: string;
+  client: () => HttpClient | null;
   summary: (client: HttpClient) => Promise<ServiceSummary>;
 };
 
 const services: ServiceDefinition[] = [
-  { key: "jellyfin", name: "Jellyfin", url: env.JELLYFIN_URL, client: jellyfinClient, summary: jellyfinSummary },
-  { key: "seerr", name: "Seerr", url: env.SEERR_URL, client: seerrClient, summary: seerrSummary },
-  { key: "immich", name: "Immich", url: env.IMMICH_URL, client: immichClient, summary: immichSummary },
-  { key: "sonarr", name: "Sonarr", url: env.SONARR_URL, client: sonarrClient, summary: sonarrSummary },
-  { key: "radarr", name: "Radarr", url: env.RADARR_URL, client: radarrClient, summary: radarrSummary },
-  { key: "prowlarr", name: "Prowlarr", url: env.PROWLARR_URL, client: prowlarrClient, summary: prowlarrSummary },
-  { key: "bazarr", name: "Bazarr", url: env.BAZARR_URL, client: bazarrClient, summary: bazarrSummary },
-  { key: "caddy", name: "Caddy", client: caddyClient, summary: caddySummary },
+  { key: "jellyfin", name: "Jellyfin", urlSetting: "JELLYFIN_URL", client: getJellyfinClient, summary: jellyfinSummary },
+  { key: "seerr", name: "Seerr", urlSetting: "SEERR_URL", client: getSeerrClient, summary: seerrSummary },
+  { key: "immich", name: "Immich", urlSetting: "IMMICH_URL", client: getImmichClient, summary: immichSummary },
+  { key: "sonarr", name: "Sonarr", urlSetting: "SONARR_URL", client: getSonarrClient, summary: sonarrSummary },
+  { key: "radarr", name: "Radarr", urlSetting: "RADARR_URL", client: getRadarrClient, summary: radarrSummary },
+  { key: "prowlarr", name: "Prowlarr", urlSetting: "PROWLARR_URL", client: getProwlarrClient, summary: prowlarrSummary },
+  { key: "bazarr", name: "Bazarr", urlSetting: "BAZARR_URL", client: getBazarrClient, summary: bazarrSummary },
+  { key: "caddy", name: "Caddy", client: getCaddyClient, summary: caddySummary },
 ];
 
 export type ServiceStatus = {
@@ -46,22 +47,33 @@ export type ServiceStatus = {
 
 // Services without settings are left out entirely; the dashboard only shows
 // what is configured.
-const configuredServices = services.flatMap(({ client, ...service }) =>
-  client ? [{ ...service, client }] : [],
-);
+function configuredServices() {
+  return services.flatMap((service) => {
+    const client = service.client();
+    return client ? [{ ...service, client }] : [];
+  });
+}
 
-export const servicesConfigured = configuredServices.length > 0;
+export function hasConfiguredServices(): boolean {
+  return configuredServices().length > 0;
+}
 
 // All configured services in parallel; one slow or down service does not
 // block the rest beyond the shared request timeout. Cached 5 s so several
-// open tabs share one round of requests.
-export const getServiceStatuses = cacheFor(5_000, async (): Promise<ServiceStatus[]> =>
-  Promise.all(
-    configuredServices.map(async ({ key, name, url, client, summary }) => ({
-      key,
-      name,
-      url,
-      result: await attempt(() => summary(client)),
-    })),
+// open tabs share one round of requests; saving settings starts a new cache.
+const statusFetcher = perSettings(() =>
+  cacheFor(5_000, async (): Promise<ServiceStatus[]> =>
+    Promise.all(
+      configuredServices().map(async ({ key, name, urlSetting, client, summary }) => ({
+        key,
+        name,
+        url: urlSetting ? getSetting(urlSetting) : undefined,
+        result: await attempt(() => summary(client)),
+      })),
+    ),
   ),
 );
+
+export function getServiceStatuses(): Promise<ServiceStatus[]> {
+  return statusFetcher()();
+}

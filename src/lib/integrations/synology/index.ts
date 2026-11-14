@@ -1,7 +1,9 @@
 import "server-only";
-import { fetch } from "undici";
+import { fetch, type Agent } from "undici";
 import { z } from "zod";
 import { env } from "@/lib/env";
+import { perSettings } from "@/lib/settings/memo";
+import { getFlag, getSetting } from "@/lib/settings/store";
 import { cacheFor } from "../cache";
 import { attempt, type IntegrationResult } from "../result";
 import { createTlsAgent } from "../tls";
@@ -46,24 +48,34 @@ const envelopeSchema = z.object({
   error: z.object({ code: z.number() }).optional(),
 });
 
-const config =
-  env.SYNOLOGY_URL && env.SYNOLOGY_USERNAME && env.SYNOLOGY_PASSWORD
-    ? {
-        webapi: new URL("/webapi/", env.SYNOLOGY_URL),
-        username: env.SYNOLOGY_USERNAME,
-        password: env.SYNOLOGY_PASSWORD,
-        dispatcher: createTlsAgent({
-          pinName: "synology",
-          caCertPath: env.SYNOLOGY_CA_CERT_PATH,
-          allowSelfSigned: env.SYNOLOGY_ALLOW_SELF_SIGNED,
-        }),
-      }
-    : null;
+type Config = { webapi: URL; username: string; password: string; dispatcher: Agent };
+
+const getConfig = perSettings((): Config | null => {
+  // New settings: forget the old session, API paths and login backoff.
+  apiInfo = undefined;
+  session = undefined;
+  loginBlocked = undefined;
+
+  const url = getSetting("SYNOLOGY_URL");
+  const username = getSetting("SYNOLOGY_USERNAME");
+  const password = getSetting("SYNOLOGY_PASSWORD");
+  if (!url || !username || !password) return null;
+  return {
+    webapi: new URL("/webapi/", url),
+    username,
+    password,
+    dispatcher: createTlsAgent({
+      pinName: "synology",
+      caCertPath: env.SYNOLOGY_CA_CERT_PATH,
+      allowSelfSigned: getFlag("SYNOLOGY_ALLOW_SELF_SIGNED"),
+    }),
+  };
+});
 
 // The dashboard hides the Synology card when this is false.
-export const synologyConfigured = config !== null;
-
-type Config = NonNullable<typeof config>;
+export function isSynologyConfigured(): boolean {
+  return getConfig() !== null;
+}
 
 async function post<T extends z.ZodType>(
   config: Config,
@@ -278,22 +290,28 @@ function parseUptime(value?: string): number | undefined {
 
 // CPU/RAM are live; 5 s only merges parallel tabs. System info and storage
 // change slowly, and load_info is heavy on DSM, so they refresh once a minute.
-const getUtilization = cacheFor(5_000, (config: Config) =>
-  authedCall(config, { api: "SYNO.Core.System.Utilization", version: "1", method: "get" }, utilizationSchema),
+// Rebuilt with the settings, so a changed account never sees cached data.
+const getUtilization = perSettings(() =>
+  cacheFor(5_000, (config: Config) =>
+    authedCall(config, { api: "SYNO.Core.System.Utilization", version: "1", method: "get" }, utilizationSchema),
+  ),
 );
-const getSystemAndStorage = cacheFor(60_000, (config: Config) =>
-  Promise.all([
-    authedCall(config, { api: "SYNO.Core.System", version: "1", method: "info" }, systemInfoSchema),
-    authedCall(config, { api: "SYNO.Storage.CGI.Storage", version: "1", method: "load_info" }, storageSchema),
-  ]),
+const getSystemAndStorage = perSettings(() =>
+  cacheFor(60_000, (config: Config) =>
+    Promise.all([
+      authedCall(config, { api: "SYNO.Core.System", version: "1", method: "info" }, systemInfoSchema),
+      authedCall(config, { api: "SYNO.Storage.CGI.Storage", version: "1", method: "load_info" }, storageSchema),
+    ]),
+  ),
 );
 
 export async function getSynologyOverview(): Promise<IntegrationResult<SynologyOverview>> {
+  const config = getConfig();
   if (!config) return { status: "not-configured" };
   return attempt(async () => {
     const [utilization, [info, storage]] = await Promise.all([
-      getUtilization(config),
-      getSystemAndStorage(config),
+      getUtilization()(config),
+      getSystemAndStorage()(config),
     ]);
     const { cpu, memory } = utilization;
     return {

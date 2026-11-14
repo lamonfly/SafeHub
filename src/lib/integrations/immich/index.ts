@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { env } from "@/lib/env";
+import { perSettings } from "@/lib/settings/memo";
+import { getSetting } from "@/lib/settings/store";
 import { formatBytes } from "@/lib/format";
 import { cacheFor } from "../cache";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
@@ -12,14 +13,13 @@ const statisticsSchema = z.object({
   usage: z.number(), // bytes
 });
 
-export const immichClient: HttpClient | null =
-  env.IMMICH_URL && env.IMMICH_API_KEY
-    ? createHttpClient({
-        name: "Immich",
-        baseUrl: env.IMMICH_URL,
-        headers: { "x-api-key": env.IMMICH_API_KEY },
-      })
+export const getImmichClient = perSettings((): HttpClient | null => {
+  const url = getSetting("IMMICH_URL");
+  const apiKey = getSetting("IMMICH_API_KEY");
+  return url && apiKey
+    ? createHttpClient({ name: "Immich", baseUrl: url, headers: { "x-api-key": apiKey } })
     : null;
+});
 
 // Counting a large library is expensive for Immich; once a minute is enough.
 const getStatistics = cacheFor(60_000, (client: HttpClient) =>

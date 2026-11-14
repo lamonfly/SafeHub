@@ -1,6 +1,8 @@
 import "server-only";
 import { z } from "zod";
 import { env } from "@/lib/env";
+import { perSettings } from "@/lib/settings/memo";
+import { getFlag, getSetting } from "@/lib/settings/store";
 import { createHttpClient, type HttpClient } from "../http";
 import { errorResult, type IntegrationResult } from "../result";
 import { createTlsAgent } from "../tls";
@@ -13,24 +15,32 @@ import {
   type ProxmoxNode,
 } from "./schemas";
 
-const client =
-  env.PROXMOX_URL && env.PROXMOX_TOKEN_ID && env.PROXMOX_TOKEN_SECRET
-    ? createHttpClient({
-        name: "Proxmox",
-        baseUrl: new URL("/api2/json/", env.PROXMOX_URL).href,
-        headers: {
-          Authorization: `PVEAPIToken=${env.PROXMOX_TOKEN_ID}=${env.PROXMOX_TOKEN_SECRET}`,
-        },
-        dispatcher: createTlsAgent({
-          pinName: "proxmox",
-          caCertPath: env.PROXMOX_CA_CERT_PATH,
-          allowSelfSigned: env.PROXMOX_ALLOW_SELF_SIGNED,
-        }),
-      })
-    : null;
+// TLS agent for any Proxmox request, including the connect wizard.
+export function proxmoxTlsAgent() {
+  return createTlsAgent({
+    pinName: "proxmox",
+    caCertPath: env.PROXMOX_CA_CERT_PATH,
+    allowSelfSigned: getFlag("PROXMOX_ALLOW_SELF_SIGNED"),
+  });
+}
+
+const getClient = perSettings((): HttpClient | null => {
+  const url = getSetting("PROXMOX_URL");
+  const tokenId = getSetting("PROXMOX_TOKEN_ID");
+  const tokenSecret = getSetting("PROXMOX_TOKEN_SECRET");
+  if (!url || !tokenId || !tokenSecret) return null;
+  return createHttpClient({
+    name: "Proxmox",
+    baseUrl: new URL("/api2/json/", url).href,
+    headers: { Authorization: `PVEAPIToken=${tokenId}=${tokenSecret}` },
+    dispatcher: proxmoxTlsAgent(),
+  });
+});
 
 // The dashboard hides the Proxmox card when this is false.
-export const proxmoxConfigured = client !== null;
+export function isProxmoxConfigured(): boolean {
+  return getClient() !== null;
+}
 
 // Proxmox wraps every response in { data }. Errors carry the reason in the
 // status text, e.g. "Permission check failed".
@@ -49,6 +59,7 @@ export type ProxmoxOverview = {
 };
 
 export async function getProxmoxOverview(): Promise<IntegrationResult<ProxmoxOverview>> {
+  const client = getClient();
   if (!client) return { status: "not-configured" };
   try {
     const [nodes, guests] = await Promise.all([
@@ -75,6 +86,7 @@ export async function runGuestAction({
   vmid,
   action,
 }: GuestActionInput): Promise<IntegrationResult<string>> {
+  const client = getClient();
   if (!client) return { status: "not-configured" };
   try {
     const upid = await request(
