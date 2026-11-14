@@ -6,13 +6,6 @@ import { localSubnets } from "@/lib/net/subnet";
 import { getScannerOverview, type HostView } from "@/lib/scanner";
 import { requireSession } from "@/lib/session";
 
-function wolLink(host: HostView): string {
-  const params = new URLSearchParams({ mac: host.mac ?? "", host: host.ip });
-  const name = host.hostname?.split(".")[0] ?? host.vendor;
-  if (name) params.set("name", name);
-  return `/settings/wol?${params}`;
-}
-
 function OpenPorts({ host }: { host: HostView }) {
   if (!host.portsScannedAt) return <span className="text-foreground/40">not scanned</span>;
   if (!host.openPorts?.length) return <span className="text-foreground/40">none</span>;
@@ -110,14 +103,7 @@ export default async function ScannerPage() {
                     </td>
                     <td className="py-2 pr-3 whitespace-nowrap">{formatTimeAgo(host.lastSeenAt)}</td>
                     <td className="py-2">
-                      <div className="flex flex-col items-end gap-1">
-                        <HostPortScanButton ip={host.ip} />
-                        {host.mac && (
-                          <Link href={wolLink(host)} className="text-xs whitespace-nowrap text-foreground/70 hover:underline">
-                            Add to WoL
-                          </Link>
-                        )}
-                      </div>
+                      <HostPortScanButton ip={host.ip} />
                     </td>
                   </tr>
                 ))}

@@ -1,14 +1,13 @@
 # SafeHub
 
-Self-hosted dashboard for a home lab. One page to see and control your servers and services, wake machines and scan your network. Runs as a single Docker container on your LAN.
+Self-hosted dashboard for a home lab. One page to see and control your servers and services and scan your network. Runs as a single Docker container on your LAN.
 
 ## Features
 
 - **Proxmox:** node CPU, RAM and uptime; VMs and LXCs with start, shut down, reboot, force stop and resume (destructive actions ask first).
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
 - **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr), Immich and Caddy. Health warnings show on each tile.
-- **Wake on LAN:** saved devices with online/offline status and a Wake button.
-- **Network scanner:** finds hosts (IP, MAC, vendor, hostname), scans ports with names for common home lab services, flags new devices, and adds any host to Wake on LAN in one click.
+- **Network scanner:** finds hosts (IP, MAC, vendor, hostname), scans ports with names for common home lab services and flags new devices.
 - **Fails soft:** an unconfigured or unreachable service shows its own error; the rest of the dashboard keeps working.
 - **Single admin login**, SQLite storage, no external services or telemetry.
 
@@ -17,7 +16,7 @@ Built with Next.js, better-auth, Drizzle (SQLite) and Tailwind CSS.
 ## Security
 
 > [!WARNING]
-> SafeHub is an admin tool. Whoever logs in can shut down VMs, wake machines and scan your network, and the server holds API keys and passwords for all connected services. Treat access to it like root access to your home lab.
+> SafeHub is an admin tool. Whoever logs in can shut down VMs and scan your network, and the server holds API keys and passwords for all connected services. Treat access to it like root access to your home lab.
 
 - **Never expose it to the internet.** No port forwarding. For remote access use a VPN such as Tailscale or WireGuard.
 - **Pick a real password.** SafeHub lets the password be anything, including empty, for convenience on a trusted LAN. Anyone who can reach the login page and guesses the username gets full control. Failed logins are limited (5 per 15 minutes per username), which slows guessing but does not replace a password.
@@ -57,13 +56,12 @@ Settings are environment variables. Put them either under `environment:` in `com
 | Seerr API key | Seerr: Settings → General → API Key | `SEERR_URL`, `SEERR_API_KEY` | |
 | Immich API key | Immich (as admin): Account Settings → API Keys | `IMMICH_URL`, `IMMICH_API_KEY` | |
 | Caddy admin address | Caddyfile global `admin` option | `CADDY_ADMIN_URL` | Read the warning in `.env.example` first. |
-| Wake on LAN devices | SafeHub, `/settings/wol` (or "Add to WoL" on `/scanner`) | Stored in the database | No restart needed |
 
 **Keys in `compose.yaml` or `.env`?** Both work. If `compose.yaml` holds keys, treat it like a secret file: `chmod 600 compose.yaml`, and never commit or share it. Write a literal `$` in a value as `$$`, because Compose reads `$` as a variable. A separate `.env` keeps keys out of a file you may want to share or put in git.
 
 ## Deploy (Docker)
 
-SafeHub must run on an always-on Linux machine on the same LAN as the machines it wakes and scans, for example a NAS or a VM/LXC on a Proxmox host. It cannot wake the machine it runs on. It uses host networking (needed for Wake on LAN broadcasts and MAC addresses), so it listens directly on the host's port 3000 (set `PORT` to change it).
+SafeHub must run on an always-on Linux machine on the same LAN as the machines it scans, for example a NAS or a VM/LXC on a Proxmox host. It uses host networking (the scanner needs it to see MAC addresses), so it listens directly on the host's port 3000 (set `PORT` to change it).
 
 The container starts as root only to make `./data` writable, then runs SafeHub as `PUID`/`PGID` (default `1000`, set in `compose.yaml`).
 
@@ -71,12 +69,12 @@ The container starts as root only to make `./data` writable, then runs SafeHub a
 
 **Update:** `docker compose up -d --build` fetches the latest `main` from GitHub and restarts. Database migrations run automatically on start.
 
-**Forgot the password:** there is no reset email. Delete the account and `/setup` opens again (WoL devices and scan history are kept):
+**Forgot the password:** there is no reset email. Delete the account and `/setup` opens again (scan history is kept):
 ```bash
 sqlite3 data/safehub.db "DELETE FROM user;"
 ```
 
-**Backup:** the `data` folder holds accounts, WoL devices, scan history and the login secret. Stop the container (`docker compose stop`) before copying it.
+**Backup:** the `data` folder holds accounts, scan history and the login secret. Stop the container (`docker compose stop`) before copying it.
 
 ### Add to an existing Docker Compose stack
 
@@ -90,7 +88,7 @@ Add to your `compose.yaml` under `services:`:
       context: https://github.com/lamonfly/SafeHub.git#main
     image: safehub:latest
     container_name: safehub
-    # Host networking: needed for Wake on LAN and MAC addresses. SafeHub is
+    # Host networking: the scanner needs it for MAC addresses. SafeHub is
     # not on the stack's network, so it cannot use container names.
     network_mode: host
     env_file:

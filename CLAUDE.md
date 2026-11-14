@@ -8,7 +8,6 @@ Self-hosted home server dashboard and monitor. One place to view, monitor and co
 
 - **Dashboard**: status, health and key stats for every host and service.
 - **Control**: start/stop/restart VMs, LXCs and containers; trigger service actions (scans, refreshes, requests).
-- **Wake on LAN**: wake sleeping machines (NAS, mini PC, desktops) with magic packets.
 - **Network scanner**: discover hosts on the LAN (IP, MAC, hostname, vendor) and scan open ports.
 - **Monitoring**: uptime history, resource usage (CPU, RAM, disk, network), alerts.
 
@@ -65,10 +64,10 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 
 ## Network features
 
-- `src/lib/net/`: shared helpers. `ip.ts` (private-range and hostname checks), `probe.ts` (TCP connect probe: connected or refused = online, timeout = offline). Reuse these for the scanner.
+- `src/lib/net/`: shared helpers. `ip.ts` (private-range check), `probe.ts` (TCP connect probe: open / closed (refused) / filtered (timeout), plus `mapLimit` for bounded concurrency).
 - `src/lib/net/`: also `subnet.ts` (CIDR math, local subnets), `arp.ts` (neighbor cache with entry states via `ip -j neigh` on Linux, falling back to `/proc/net/arp`; `arp -a` elsewhere. The scanner waits for pending entries and ignores stale ones), `vendor.ts` (MAC vendor via `oui-data`, kept out of the bundle by `serverExternalPackages`), `ports.ts` (discovery ports, named top ports, port list parser).
 - `src/lib/scanner/`: TCP connect discovery plus ARP cache, reverse DNS, port scans. One scan at a time (in-process lock). Ranges are private only, /22 at most. Results in `scan_run` and `network_host` (keyed by MAC, or `ip:<addr>` when no MAC). UI at `/scanner`.
-- `src/lib/wol/`: magic packets via `node:dgram`, devices stored in the `wol_device` table, managed at `/settings/wol`. Broadcast targets are limited to `255.255.255.255` or private addresses.
+- Wake on LAN was removed on purpose (owner has no use for it); its table is dropped by migration `0004`. Do not re-add it unless asked.
 
 ## Auth and database
 
@@ -87,18 +86,17 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 - **Validate all external data** at the adapter boundary (response shapes) and at the action boundary (user input, IPs, port ranges, MAC addresses).
 - **Fail soft.** A service being down must not break the dashboard. Every adapter returns a clear offline/error state; use timeouts on every request.
 - **Self-signed certificates**: Proxmox and DSM often use self-signed certs. Handle TLS trust per integration (custom CA or explicit opt-in flag), never globally via `NODE_TLS_REJECT_UNAUTHORIZED=0`.
-- **Network features need LAN access.** Wake on LAN (UDP broadcast) and ARP-level scanning only work when the server runs on the same L2 network with host networking (no Docker bridge).
+- **Network features need LAN access.** ARP-level scanning (MAC addresses, vendors) only works when the server runs on the same L2 network with host networking (no Docker bridge).
 - **Privileged operations** (raw sockets, nmap SYN scans) need elevated rights. Prefer unprivileged TCP connect scans by default.
 
 ## Deployment
 
 - **Web app, not native mobile.** Phones get it as an installable PWA. Native apps cannot do background monitoring, are blocked from ARP/MAC scanning, and would hold every API key on the device.
-- **Host: the Proxmox mini PC** (decided), inside the existing Docker guest (LXC or VM), never on the Proxmox host itself. The guest must be bridged to the LAN (`vmbr0`) so WoL broadcasts and ARP reach other machines. Ship as a Docker image with `network_mode: host`. The NAS stays a possible fallback host; the code does not depend on which one.
+- **Host: the Proxmox mini PC** (decided), inside the existing Docker guest (LXC or VM), never on the Proxmox host itself. The guest must be bridged to the LAN (`vmbr0`) so the scanner sees other machines' MAC addresses. Ship as a Docker image with `network_mode: host`. The NAS stays a possible fallback host; the code does not depend on which one.
 - **Zero-config start:** `compose.yaml` + `docker compose up -d` must be enough. Never add a setting the app cannot start without: the login secret is generated into `data/auth-secret`, `BETTER_AUTH_URL` is optional (unset means plain cookies, see `lib/auth.ts`), `.env` is optional (`required: false`), and `docker-entrypoint.sh` chowns `/app/data` then drops to PUID/PGID with `setpriv`. New settings need a safe default, or their feature shows as "not configured".
 - **Docker:** `Dockerfile` builds Next's `output: "standalone"` server (Debian slim, healthcheck on `/api/health`, app runs unprivileged via the entrypoint). `compose.yaml` builds from the GitHub repo, mounts `./data` (SQLite + secret) and `./certs` (CA files, read-only), and takes settings from `environment:` or an optional `.env`. Paths in settings stay relative to `/app`. The build uses placeholder env values; real config is runtime-only. Copy any new runtime folder (like `drizzle/`) into the runner stage. `.sh` files and the Dockerfile keep LF endings (`.gitattributes`). Deploy steps and the settings table live in `README.md`; keep both in sync when adding env vars.
-- **The host cannot wake itself.** SafeHub can wake the NAS and other machines, not the mini PC it runs on. If the mini PC is down, the dashboard is down. Keep the app small enough that moving it between hosts is easy.
-- **Remote access via Tailscale/WireGuard** to the host. Never port-forward the app or WoL to the internet. Remote WoL works because the phone talks to SafeHub, and SafeHub sends the broadcast on the LAN.
-- **Power loss:** WoL cannot recover from an outage. Machines rely on BIOS/DSM "power on after AC loss".
+- **If the mini PC is down, the dashboard is down.** Keep the app small enough that moving it between hosts is easy.
+- **Remote access via Tailscale/WireGuard** to the host. Never port-forward the app to the internet.
 
 ## Security
 

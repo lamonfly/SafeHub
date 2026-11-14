@@ -1,0 +1,1 @@
+DROP TABLE `wol_device`;

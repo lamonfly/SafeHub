@@ -7,8 +7,8 @@ services:
       context: https://github.com/lamonfly/SafeHub.git#main
     image: safehub:latest
     container_name: safehub
-    # Host networking: needed for Wake on LAN broadcasts and for the scanner
-    # to see MAC addresses. The app listens directly on the host's PORT.
+    # Host networking: the scanner needs it to see MAC addresses
+    # (ARP only works on the same network). The app listens directly on the host's PORT.
     network_mode: host
     env_file:
       - path: .env

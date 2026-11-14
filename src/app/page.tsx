@@ -4,7 +4,6 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { ProxmoxCard } from "@/components/proxmox/proxmox-card";
 import { ServicesCard } from "@/components/services/services-card";
 import { SynologyCard } from "@/components/synology/synology-card";
-import { WolCard } from "@/components/wol/wol-card";
 import { requireSession } from "@/lib/session";
 import { signOut } from "./(auth)/actions";
 
@@ -39,14 +38,9 @@ export default async function DashboardPage() {
           </button>
         </form>
       </header>
-      <div className="grid gap-6 md:grid-cols-2">
-        <Suspense fallback={<CardFallback title="Synology" />}>
-          <SynologyCard />
-        </Suspense>
-        <Suspense fallback={<CardFallback title="Wake on LAN" />}>
-          <WolCard />
-        </Suspense>
-      </div>
+      <Suspense fallback={<CardFallback title="Synology" />}>
+        <SynologyCard />
+      </Suspense>
       <Suspense fallback={<CardFallback title="Services" />}>
         <ServicesCard />
       </Suspense>

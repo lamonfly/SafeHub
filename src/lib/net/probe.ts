@@ -23,12 +23,6 @@ export function connectTcp(host: string, port: number, timeoutMs = 1_000): Promi
   });
 }
 
-// Checks if a host is up with a TCP connect. A refused connection still
-// proves the host answered, so it counts as online.
-export async function probeTcp(host: string, port: number, timeoutMs = 1_000): Promise<boolean> {
-  return (await connectTcp(host, port, timeoutMs)) !== "filtered";
-}
-
 // Runs fn over items with at most `limit` calls in flight.
 export async function mapLimit<T, R>(
   items: readonly T[],
