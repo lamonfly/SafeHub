@@ -187,7 +187,7 @@ Checks (GitHub runs all of them on every push; an image is only published when t
 
 ```bash
 npm run lint
-npx tsc --noEmit
+npm run typecheck             # generates Next route types, then tsc
 npm test                     # unit and integration tests (Vitest)
 npm run build && npm run test:smoke   # starts the production build and opens every page
 ```

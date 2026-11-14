@@ -41,6 +41,7 @@ npm run dev     # dev server
 npm run build   # production build
 npm run start   # run production build
 npm run lint    # eslint
+npm run typecheck    # next typegen + tsc (route types like PageProps are generated)
 npm test        # Vitest: unit + integration tests (src/**/*.test.ts, tests/)
 npm run test:smoke   # after build: runs the standalone server, opens every page
 npm run db:generate  # create a migration after changing src/db/schema
@@ -133,7 +134,7 @@ This app can power machines on/off and control services. Treat it as an admin to
 
 ## Tests and CI
 
-- `.github/workflows/ci.yml`: on every push and PR runs lint, `tsc`, `npm test`, build and `npm run test:smoke`. Only on `main`, and only if that passed, it publishes `ghcr.io/lamonfly/safehub:latest` (+ `sha-<short>`). Never push a change that fails these locally.
+- `.github/workflows/ci.yml`: on every push and PR runs lint, `npm run typecheck`, `npm test`, build and `npm run test:smoke`. Only on `main`, and only if that passed, it publishes `ghcr.io/lamonfly/safehub:latest` (+ `sha-<short>`). Never push a change that fails these locally.
 - Tests run in separate processes, each with its own temporary database (`tests/support/setup.ts` also clears integration env vars so a developer's `.env.local` cannot leak in). Modules read env and the database at import: set `process.env` first, then `await import(...)` inside `beforeAll`. Use `tests/support/helpers.ts` for fake HTTP/HTTPS services and throwaway certificates (`selfsigned`); never commit keys or certificates.
 - Add a test with every behaviour change: pure logic next to the code (`*.test.ts`), cross-cutting checks in `tests/`. `tests/client-boundary.test.ts` enforces that `"use client"` files export only components and hooks. New pages go into the smoke test's list in `scripts/smoke-test.mts`.
 
