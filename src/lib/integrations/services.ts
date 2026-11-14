@@ -44,18 +44,24 @@ export type ServiceStatus = {
   result: IntegrationResult<ServiceSummary>;
 };
 
-// All services in parallel; one slow or down service does not block the rest
-// beyond the shared request timeout. Cached 5 s so several open tabs share
-// one round of requests.
+// Services without settings are left out entirely; the dashboard only shows
+// what is configured.
+const configuredServices = services.flatMap(({ client, ...service }) =>
+  client ? [{ ...service, client }] : [],
+);
+
+export const servicesConfigured = configuredServices.length > 0;
+
+// All configured services in parallel; one slow or down service does not
+// block the rest beyond the shared request timeout. Cached 5 s so several
+// open tabs share one round of requests.
 export const getServiceStatuses = cacheFor(5_000, async (): Promise<ServiceStatus[]> =>
   Promise.all(
-    services.map(async ({ key, name, url, client, summary }) => ({
+    configuredServices.map(async ({ key, name, url, client, summary }) => ({
       key,
       name,
       url,
-      result: client
-        ? await attempt(() => summary(client))
-        : ({ status: "not-configured" } as const),
+      result: await attempt(() => summary(client)),
     })),
   ),
 );

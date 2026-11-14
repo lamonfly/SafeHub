@@ -28,6 +28,9 @@ const client =
       })
     : null;
 
+// The dashboard hides the Proxmox card when this is false.
+export const proxmoxConfigured = client !== null;
+
 // Proxmox wraps every response in { data }. Errors carry the reason in the
 // status text, e.g. "Permission check failed".
 async function request<T extends z.ZodType>(

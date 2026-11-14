@@ -55,31 +55,19 @@ function ServiceTile({ service }: { service: ServiceStatus }) {
 }
 
 export async function ServicesCard() {
+  // Only configured services are returned; the dashboard skips this card
+  // when there are none.
   const statuses = await getServiceStatuses();
-  const configured = statuses.filter((service) => service.result.status !== "not-configured");
-  const notConfigured = statuses.filter((service) => service.result.status === "not-configured");
+  if (statuses.length === 0) return null;
 
   return (
     <section className="rounded-lg border border-foreground/15 p-4">
       <h2 className="mb-3 text-lg font-semibold">Services</h2>
-
-      {configured.length > 0 ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {configured.map((service) => (
-            <ServiceTile key={service.key} service={service} />
-          ))}
-        </div>
-      ) : (
-        <p className="text-sm text-foreground/70">
-          No services configured. Add their URLs and API keys to <code>.env.local</code>.
-        </p>
-      )}
-
-      {configured.length > 0 && notConfigured.length > 0 && (
-        <p className="mt-3 text-xs text-foreground/50">
-          Not configured: {notConfigured.map((service) => service.name).join(", ")}
-        </p>
-      )}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {statuses.map((service) => (
+          <ServiceTile key={service.key} service={service} />
+        ))}
+      </div>
     </section>
   );
 }

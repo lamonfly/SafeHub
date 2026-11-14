@@ -59,6 +59,9 @@ const config =
       }
     : null;
 
+// The dashboard hides the Synology card when this is false.
+export const synologyConfigured = config !== null;
+
 type Config = NonNullable<typeof config>;
 
 async function post<T extends z.ZodType>(

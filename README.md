@@ -40,7 +40,7 @@ The first start builds the image from GitHub (a few minutes). Then open `http://
 
 ## Settings and credentials
 
-Settings are environment variables. Put them either under `environment:` in `compose.yaml` or in an optional `.env` file next to it; [`.env.example`](.env.example) lists every one with setup notes. After a change, apply it with `docker compose up -d` (a plain `restart` does not reload settings). Services without settings show as "not configured".
+Settings are environment variables. Put them either under `environment:` in `compose.yaml` or in an optional `.env` file next to it; [`.env.example`](.env.example) lists every one with setup notes. After a change, apply it with `docker compose up -d` (a plain `restart` does not reload settings). Anything without settings is simply hidden from the dashboard.
 
 | What | Create it in | Setting | Notes |
 |------|-------------|---------|-------|

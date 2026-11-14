@@ -58,7 +58,8 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 - Expensive or repeated calls go through `cacheFor(ttl, fn)` (`../cache.ts`): shares one in-flight request between tabs, never caches failures.
 - Schema mismatches (`ZodError`) show a short tile message; details are logged once on the server.
 - CA certificate paths are checked at boot in `env.ts`.
-- UI in `src/components/<service>/`: a Server Component card that renders all three states, client components for buttons, and a `"use server"` actions file that calls `requireSession()`, validates input, then calls `refresh()`.
+- UI in `src/components/<service>/`: a Server Component card that renders `ok` and `error`, and returns `null` for `not-configured`, client components for buttons, and a `"use server"` actions file that calls `requireSession()`, validates input, then calls `refresh()`.
+- **Hide what is not configured.** Each adapter exports a `<name>Configured` flag (`servicesConfigured` for the registry); `src/app/page.tsx` only renders cards whose flag is true, so unconfigured integrations never show, not even as a loading placeholder. With nothing configured the page shows one setup hint.
 - The dashboard re-renders every 10 s via `<AutoRefresh>` (paused when the tab is hidden).
 
 ## Removed features
@@ -87,7 +88,7 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 
 - **Web app, not native mobile.** Phones get it as an installable PWA. Native apps cannot do background monitoring and would hold every API key on the device.
 - **Host: the Proxmox mini PC** (decided), inside the existing Docker guest (LXC or VM), never on the Proxmox host itself. Normal Docker networking: port 3000 mapped, and SafeHub can join the servarr stack's network to reach containers by name (`http://sonarr:8989`). The NAS stays a possible fallback host; the code does not depend on which one.
-- **Zero-config start:** `compose.yaml` + `docker compose up -d` must be enough. Never add a setting the app cannot start without: the login secret is generated into `data/auth-secret`, `BETTER_AUTH_URL` is optional (unset means plain cookies, see `lib/auth.ts`), `.env` is optional (`required: false`), and `docker-entrypoint.sh` chowns `/app/data` then drops to PUID/PGID with `setpriv`. New settings need a safe default, or their feature shows as "not configured".
+- **Zero-config start:** `compose.yaml` + `docker compose up -d` must be enough. Never add a setting the app cannot start without: the login secret is generated into `data/auth-secret`, `BETTER_AUTH_URL` is optional (unset means plain cookies, see `lib/auth.ts`), `.env` is optional (`required: false`), and `docker-entrypoint.sh` chowns `/app/data` then drops to PUID/PGID with `setpriv`. New settings need a safe default, or their feature is hidden until configured.
 - **Docker:** `Dockerfile` builds Next's `output: "standalone"` server (Debian slim, healthcheck on `/api/health`, app runs unprivileged via the entrypoint). `compose.yaml` builds from the GitHub repo, mounts `./data` (SQLite + secret) and `./certs` (CA files, read-only), and takes settings from `environment:` or an optional `.env`. Paths in settings stay relative to `/app`. The build uses placeholder env values; real config is runtime-only. Copy any new runtime folder (like `drizzle/`) into the runner stage. `.sh` files and the Dockerfile keep LF endings (`.gitattributes`). Deploy steps and the settings table live in `README.md`; keep both in sync when adding env vars.
 - **If the mini PC is down, the dashboard is down.** Keep the app small enough that moving it between hosts is easy.
 - **Remote access via Tailscale/WireGuard** to the host. Never port-forward the app to the internet.

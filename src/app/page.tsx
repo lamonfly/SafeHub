@@ -3,6 +3,9 @@ import { AutoRefresh } from "@/components/auto-refresh";
 import { ProxmoxCard } from "@/components/proxmox/proxmox-card";
 import { ServicesCard } from "@/components/services/services-card";
 import { SynologyCard } from "@/components/synology/synology-card";
+import { proxmoxConfigured } from "@/lib/integrations/proxmox";
+import { servicesConfigured } from "@/lib/integrations/services";
+import { synologyConfigured } from "@/lib/integrations/synology";
 import { requireSession } from "@/lib/session";
 import { signOut } from "./(auth)/actions";
 
@@ -16,6 +19,10 @@ function CardFallback({ title }: { title: string }) {
     </section>
   );
 }
+
+// Cards only appear for configured integrations; unconfigured ones are not
+// rendered at all, not even as a loading placeholder.
+const anythingConfigured = synologyConfigured || servicesConfigured || proxmoxConfigured;
 
 export default async function DashboardPage() {
   const { user } = await requireSession();
@@ -34,16 +41,29 @@ export default async function DashboardPage() {
           </button>
         </form>
       </header>
-      <Suspense fallback={<CardFallback title="Synology" />}>
-        <SynologyCard />
-      </Suspense>
-      <Suspense fallback={<CardFallback title="Services" />}>
-        <ServicesCard />
-      </Suspense>
-      <Suspense fallback={<CardFallback title="Proxmox" />}>
-        <ProxmoxCard />
-      </Suspense>
-      <AutoRefresh intervalMs={10_000} />
+      {synologyConfigured && (
+        <Suspense fallback={<CardFallback title="Synology" />}>
+          <SynologyCard />
+        </Suspense>
+      )}
+      {servicesConfigured && (
+        <Suspense fallback={<CardFallback title="Services" />}>
+          <ServicesCard />
+        </Suspense>
+      )}
+      {proxmoxConfigured && (
+        <Suspense fallback={<CardFallback title="Proxmox" />}>
+          <ProxmoxCard />
+        </Suspense>
+      )}
+      {anythingConfigured ? (
+        <AutoRefresh intervalMs={10_000} />
+      ) : (
+        <p className="text-sm text-foreground/70">
+          Nothing to show yet. Add your services&apos; settings to <code>compose.yaml</code> (or{" "}
+          <code>.env</code>) and run <code>docker compose up -d</code>.
+        </p>
+      )}
     </main>
   );
 }

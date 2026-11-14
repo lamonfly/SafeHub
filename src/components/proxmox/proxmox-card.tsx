@@ -35,17 +35,12 @@ function NodeSummary({ node }: { node: ProxmoxNode }) {
 
 export async function ProxmoxCard() {
   const result = await getProxmoxOverview();
+  // Unconfigured: show nothing (the dashboard normally skips the card).
+  if (result.status === "not-configured") return null;
 
   return (
     <section className="rounded-lg border border-foreground/15 p-4">
       <h2 className="mb-3 text-lg font-semibold">Proxmox</h2>
-
-      {result.status === "not-configured" && (
-        <p className="text-sm text-foreground/70">
-          Not configured. Set <code>PROXMOX_URL</code>, <code>PROXMOX_TOKEN_ID</code> and{" "}
-          <code>PROXMOX_TOKEN_SECRET</code> in <code>.env.local</code>.
-        </p>
-      )}
 
       {result.status === "error" && (
         <p role="alert" className="text-sm text-red-500">

@@ -9,6 +9,8 @@ function healthClass(status: string): string {
 
 export async function SynologyCard() {
   const result = await getSynologyOverview();
+  // Unconfigured: show nothing (the dashboard normally skips the card).
+  if (result.status === "not-configured") return null;
 
   return (
     <section className="rounded-lg border border-foreground/15 p-4">
@@ -27,13 +29,6 @@ export async function SynologyCard() {
           </span>
         )}
       </div>
-
-      {result.status === "not-configured" && (
-        <p className="text-sm text-foreground/70">
-          Not configured. Set <code>SYNOLOGY_URL</code>, <code>SYNOLOGY_USERNAME</code> and{" "}
-          <code>SYNOLOGY_PASSWORD</code> in <code>.env.local</code>.
-        </p>
-      )}
 
       {result.status === "error" && (
         <p role="alert" className="text-sm text-red-500">
