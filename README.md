@@ -22,91 +22,65 @@ Built with Next.js, better-auth, Drizzle (SQLite) and Tailwind CSS.
 - **Never expose it to the internet.** No port forwarding. For remote access use a VPN such as Tailscale or WireGuard.
 - **Pick a real password.** SafeHub lets the password be anything, including empty, for convenience on a trusted LAN. Anyone who can reach the login page and guesses the username gets full control. Failed logins are limited (5 per 15 minutes per username), which slows guessing but does not replace a password.
 - **Give every API key the least rights it needs:** a Proxmox token with only `PVEAuditor` (plus `PVEVMUser` if you want the buttons), a dedicated Synology user, never your personal accounts.
-- **Keep `.env` private** (`chmod 600 .env`). It holds every key. It is gitignored; never commit it or paste it into issues.
+- **Keep your keys private.** Whichever file holds them (`compose.yaml` or `.env`): `chmod 600`, never commit it, never paste it into issues. `.env` is gitignored; a `compose.yaml` with keys is not.
 - **Caddy's admin API has no authentication.** Only connect it if SafeHub runs on the same host and the API stays on `127.0.0.1`.
 - **Prefer certificate checks.** Use the `*_CA_CERT_PATH` options; `*_ALLOW_SELF_SIGNED=true` keeps traffic encrypted but cannot detect an impostor on your LAN.
 
 Found a security issue? Please report it privately through GitHub's "Report a vulnerability" (Security tab) instead of opening a public issue.
 
-## Credentials: what goes where
+## Quick start
 
-Everything secret lives in **one file, `.env`**, next to `compose.yaml` on the host that runs SafeHub (for local development: `.env.local` in the project folder). Copy `.env.example` to start; it lists every variable with setup notes. Only two things are entered in the browser instead.
+On an always-on Linux machine in your LAN with Docker Compose 2.24 or newer:
 
-| What | Create it in | Put it in | When |
-|------|-------------|-----------|------|
-| `BETTER_AUTH_SECRET` | Generate: `openssl rand -base64 32` | `.env` | Before the first start. Changing it later signs everyone out. |
-| `BETTER_AUTH_URL` | The address you open SafeHub at, e.g. `http://192.168.1.20:3000` | `.env` | Before the first start. A wrong value makes login fail with "Invalid origin". |
-| `BETTER_AUTH_TRUSTED_ORIGINS` (optional) | Other addresses you open SafeHub at, comma-separated | `.env` | Only if you use more than one address (e.g. LAN IP and a Caddy domain). |
-| SafeHub admin account (username + password) | SafeHub, `/setup` page in the browser | Database | First visit after the first start. Sign-up closes afterwards. No email needed. |
-| Proxmox API token | Proxmox UI: Datacenter → Permissions → API Tokens | `.env`: `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET` | Any time. The secret is shown only once. |
-| Proxmox CA certificate | Copy `/etc/pve/pve-root-ca.pem` from the Proxmox host | `./certs/pve-root-ca.pem`, and `.env`: `PROXMOX_CA_CERT_PATH=./certs/pve-root-ca.pem` | With the token |
-| Synology user + password | DSM: Control Panel → User. Dedicated user, in `administrators`, 2FA off, all apps denied | `.env`: `SYNOLOGY_URL`, `SYNOLOGY_USERNAME`, `SYNOLOGY_PASSWORD` | Any time |
-| Sonarr / Radarr / Prowlarr / Bazarr API keys | Each app: Settings → General → API Key | `.env`: `<APP>_URL`, `<APP>_API_KEY` | Any time |
-| Jellyfin API key | Jellyfin: Dashboard → API Keys → + | `.env`: `JELLYFIN_URL`, `JELLYFIN_API_KEY` | Any time |
-| Seerr API key | Seerr: Settings → General → API Key | `.env`: `SEERR_URL`, `SEERR_API_KEY` | Any time |
-| Immich API key | Immich (as admin): Account Settings → API Keys | `.env`: `IMMICH_URL`, `IMMICH_API_KEY` | Any time |
-| Caddy admin address | Caddyfile global `admin` option | `.env`: `CADDY_ADMIN_URL` | Any time. Read the warning in `.env.example` first. |
-| Wake on LAN devices | SafeHub, `/settings/wol` (or "Add to WoL" on `/scanner`) | Database | Any time, no restart |
+```bash
+mkdir safehub && cd safehub
+curl -fsSL -O https://raw.githubusercontent.com/lamonfly/SafeHub/main/compose.yaml
+docker compose up -d
+```
 
-After editing `.env`, apply it with `docker compose up -d` (a plain `restart` does not reload `.env`). Unset services just show as "not configured".
+The first start builds the image from GitHub (a few minutes). Then open `http://<machine IP>:3000` and create your account on `/setup`. Everything else is automatic: the `data` folder and its permissions, the login secret (`data/auth-secret`) and the database. Add services whenever you like (next section).
 
-Protect the file: `chmod 600 .env`. Never commit it (`.gitignore` already excludes it).
+## Settings and credentials
+
+Settings are environment variables. Put them either under `environment:` in `compose.yaml` or in an optional `.env` file next to it; [`.env.example`](.env.example) lists every one with setup notes. After a change, apply it with `docker compose up -d` (a plain `restart` does not reload settings). Services without settings show as "not configured".
+
+| What | Create it in | Setting | Notes |
+|------|-------------|---------|-------|
+| SafeHub account (username + password) | SafeHub, `/setup` page | Stored in the database | First visit. Sign-up closes afterwards. No email needed. |
+| Login secret | Automatic (`data/auth-secret`) | `BETTER_AUTH_SECRET` (optional) | Only set it to choose your own. Changing it signs everyone out. |
+| HTTPS address (optional) | Your reverse proxy, e.g. Caddy | `BETTER_AUTH_URL=https://safehub.example.lan` | Only when SafeHub is served over HTTPS: enables Secure cookies. Leave unset for plain `http://<IP>:3000`. |
+| Proxmox API token | Proxmox UI: Datacenter → Permissions → API Tokens | `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET` | The secret is shown only once. |
+| Proxmox CA certificate | Copy `/etc/pve/pve-root-ca.pem` from the Proxmox host into `./certs/` | `PROXMOX_CA_CERT_PATH=./certs/pve-root-ca.pem` | Or `PROXMOX_ALLOW_SELF_SIGNED=true` |
+| Synology user + password | DSM: Control Panel → User. Dedicated user, in `administrators`, 2FA off, all apps denied | `SYNOLOGY_URL`, `SYNOLOGY_USERNAME`, `SYNOLOGY_PASSWORD` | DSM 6 and 7 |
+| Sonarr / Radarr / Prowlarr / Bazarr API keys | Each app: Settings → General → API Key | `<APP>_URL`, `<APP>_API_KEY` | |
+| Jellyfin API key | Jellyfin: Dashboard → API Keys → + | `JELLYFIN_URL`, `JELLYFIN_API_KEY` | |
+| Seerr API key | Seerr: Settings → General → API Key | `SEERR_URL`, `SEERR_API_KEY` | |
+| Immich API key | Immich (as admin): Account Settings → API Keys | `IMMICH_URL`, `IMMICH_API_KEY` | |
+| Caddy admin address | Caddyfile global `admin` option | `CADDY_ADMIN_URL` | Read the warning in `.env.example` first. |
+| Wake on LAN devices | SafeHub, `/settings/wol` (or "Add to WoL" on `/scanner`) | Stored in the database | No restart needed |
+
+**Keys in `compose.yaml` or `.env`?** Both work. If `compose.yaml` holds keys, treat it like a secret file: `chmod 600 compose.yaml`, and never commit or share it. Write a literal `$` in a value as `$$`, because Compose reads `$` as a variable. A separate `.env` keeps keys out of a file you may want to share or put in git.
 
 ## Deploy (Docker)
 
-SafeHub must run on an always-on Linux machine on the same LAN as the machines it wakes and scans, for example a NAS or a VM/LXC on a Proxmox host. It cannot wake the machine it runs on. It uses host networking (needed for Wake on LAN broadcasts and MAC addresses), so it listens directly on the host's port 3000 (change with `PORT` in `.env`).
+SafeHub must run on an always-on Linux machine on the same LAN as the machines it wakes and scans, for example a NAS or a VM/LXC on a Proxmox host. It cannot wake the machine it runs on. It uses host networking (needed for Wake on LAN broadcasts and MAC addresses), so it listens directly on the host's port 3000 (set `PORT` to change it).
 
-1. Copy the project to the host, e.g. `/volume1/docker/safehub` (Synology) or `/opt/safehub` (Linux).
-2. Create the config and folders:
-   ```bash
-   cp .env.example .env      # then fill it in (see table above)
-   chmod 600 .env
-   mkdir -p data certs
-   ```
-3. Make `data` writable for the container user. Find your ids with `id`, then either put them in `.env` (`PUID=1026`, `PGID=100` is typical on Synology) or keep the default `1000:1000`:
-   ```bash
-   sudo chown -R 1000:1000 data   # or your PUID:PGID
-   ```
-4. Build and start:
-   ```bash
-   docker compose up -d --build
-   docker compose logs -f safehub   # wait for "Ready"
-   ```
-5. Open `BETTER_AUTH_URL` in the browser. You land on `/setup`: create the admin account.
+The container starts as root only to make `./data` writable, then runs SafeHub as `PUID`/`PGID` (default `1000`, set in `compose.yaml`).
 
-**Paths:** keep every path in `.env` relative (`DATABASE_PATH=./data/safehub.db`, `PROXMOX_CA_CERT_PATH=./certs/pve-root-ca.pem`). The app runs in `/app` inside the container, where `./data` and `./certs` are mounted from the project folder, so the same values work in Docker and in development.
+**Paths:** keep every path in settings relative (`DATABASE_PATH=./data/safehub.db`, `PROXMOX_CA_CERT_PATH=./certs/pve-root-ca.pem`). The app runs in `/app` inside the container, where `./data` and `./certs` are mounted from the project folder, so the same values work in Docker and in development.
 
-**Update:** pull or copy the new code, then `docker compose up -d --build`. Database migrations run automatically on start.
+**Update:** `docker compose up -d --build` fetches the latest `main` from GitHub and restarts. Database migrations run automatically on start.
 
 **Forgot the password:** there is no reset email. Delete the account and `/setup` opens again (WoL devices and scan history are kept):
 ```bash
 sqlite3 data/safehub.db "DELETE FROM user;"
 ```
 
-**Backup:** `data/safehub.db` holds accounts, WoL devices and scan history. Stop the container (`docker compose stop`) before copying it, or copy `safehub.db`, `safehub.db-wal` and `safehub.db-shm` together.
+**Backup:** the `data` folder holds accounts, WoL devices, scan history and the login secret. Stop the container (`docker compose stop`) before copying it.
 
 ### Add to an existing Docker Compose stack
 
-If you already run a Compose stack (for example Sonarr, Radarr, Prowlarr, Jellyseerr), add SafeHub as one more service instead of using a separate project. Compose builds it straight from GitHub; no clone needed.
-
-Layout next to your existing `compose.yaml`:
-
-```
-/opt/servarr/            # your stack folder
-├── compose.yaml
-└── safehub/
-    ├── .env             # SafeHub config (see "Credentials" above)
-    ├── certs/           # optional CA files
-    └── data/            # SQLite database
-```
-
-```bash
-cd /opt/servarr
-mkdir -p safehub/data safehub/certs
-curl -fsSL -o safehub/.env https://raw.githubusercontent.com/lamonfly/SafeHub/main/.env.example
-chmod 600 safehub/.env
-sudo chown -R 1000:1000 safehub/data
-```
+If you already run a Compose stack (for example Sonarr, Radarr, Prowlarr, Jellyseerr), add SafeHub as one more service. Its files stay in a `safehub/` folder next to your `compose.yaml`; Docker creates it on the first start.
 
 Add to your `compose.yaml` under `services:`:
 
@@ -119,20 +93,25 @@ Add to your `compose.yaml` under `services:`:
     # Host networking: needed for Wake on LAN and MAC addresses. SafeHub is
     # not on the stack's network, so it cannot use container names.
     network_mode: host
-    user: "1000:1000"            # owner of ./safehub/data
-    env_file: ./safehub/.env
-    # Relative paths in .env (./data/..., ./certs/...) resolve inside /app,
-    # which these mounts map to ./safehub/data and ./safehub/certs.
+    env_file:
+      - path: ./safehub/.env    # optional; keys can also go under environment:
+        required: false
+    environment:
+      PUID: 1000
+      PGID: 1000
+      # SONARR_URL: http://127.0.0.1:8989
+      # SONARR_API_KEY: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    # Relative paths in settings (./data/..., ./certs/...) resolve inside
+    # /app, which these mounts map to ./safehub/data and ./safehub/certs.
     volumes:
       - ./safehub/data:/app/data
       - ./safehub/certs:/app/certs:ro
     restart: unless-stopped
 ```
 
-In `safehub/.env`, point services on the same host at their **published** ports on `127.0.0.1` (host networking means "localhost" is the Docker host). Include any URL base you configured:
+In SafeHub's settings, point services on the same host at their **published** ports on `127.0.0.1` (host networking means "localhost" is the Docker host). Include any URL base you configured:
 
 ```bash
-BETTER_AUTH_URL=http://192.168.1.20:3000   # the Docker host's LAN IP
 SONARR_URL=http://127.0.0.1:8989
 RADARR_URL=http://127.0.0.1:7878
 PROWLARR_URL=http://127.0.0.1:9696
@@ -168,12 +147,12 @@ docker compose logs -f safehub
 }
 ```
 
-Then set `CADDY_ADMIN_URL=http://127.0.0.1:2019` in `safehub/.env`. The admin API binds to all interfaces inside the Caddy container, but Docker only publishes it on the host's loopback.
+Then set `CADDY_ADMIN_URL=http://127.0.0.1:2019` in SafeHub's settings. The admin API binds to all interfaces inside the Caddy container, but Docker only publishes it on the host's loopback.
 
 ### Synology NAS
 
 - Needs Container Manager (DSM 7.2+, mostly x86 "plus" models).
-- Easiest via SSH (Control Panel → Terminal & SNMP → enable SSH), then run the steps above with `sudo docker compose ...` in `/volume1/docker/safehub`.
+- Easiest via SSH (Control Panel → Terminal & SNMP → enable SSH), then follow Quick start with `sudo docker compose ...` in e.g. `/volume1/docker/safehub`.
 - Or in Container Manager → Project → Create, with the project folder as path and the existing `compose.yaml`.
 - Port 5000/5001 are DSM's; keep SafeHub on 3000 or another free port.
 
@@ -186,7 +165,7 @@ Then set `CADDY_ADMIN_URL=http://127.0.0.1:2019` in `safehub/.env`. The admin AP
 ## Development
 
 ```bash
-cp .env.example .env.local   # fill in BETTER_AUTH_SECRET at least
+cp .env.example .env.local   # optional: service settings
 npm install
 npm run dev                  # http://localhost:3000
 ```

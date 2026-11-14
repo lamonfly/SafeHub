@@ -1,5 +1,7 @@
 import "server-only";
-import { accessSync, constants } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { accessSync, constants, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { z } from "zod";
 
 // Integrations are optional: an unset URL means "not configured", and the
@@ -23,9 +25,11 @@ const optionalReadableFile = z
   .optional();
 
 const envSchema = z.object({
-  // Core: these are required.
-  BETTER_AUTH_SECRET: z.string().min(32),
-  BETTER_AUTH_URL: z.url(),
+  // Core. All optional so a bare `docker compose up -d` works:
+  // - no secret: one is generated on first start and kept next to the database
+  // - no URL: SafeHub works at whatever address it is opened with
+  BETTER_AUTH_SECRET: z.string().min(32).optional(),
+  BETTER_AUTH_URL: z.url().optional(),
   // Extra addresses SafeHub is opened at, comma-separated, e.g. the LAN IP
   // when BETTER_AUTH_URL is the Caddy domain.
   BETTER_AUTH_TRUSTED_ORIGINS: z
@@ -69,7 +73,27 @@ const envSchema = z.object({
   CADDY_ADMIN_URL: optionalUrl,
 });
 
-export type Env = z.infer<typeof envSchema>;
+type ParsedEnv = z.infer<typeof envSchema>;
+export type Env = ParsedEnv & { BETTER_AUTH_SECRET: string };
+
+// Reads the generated secret, or creates it on first start. Losing the file
+// only signs everyone out; it is not needed to read the database.
+function loadOrCreateAuthSecret(databasePath: string): string {
+  const path = join(dirname(databasePath), "auth-secret");
+  try {
+    return readFileSync(path, "utf8").trim();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  try {
+    // "wx": never overwrite a secret another process wrote in the meantime.
+    writeFileSync(path, `${randomBytes(32).toString("base64")}\n`, { mode: 0o600, flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  return readFileSync(path, "utf8").trim();
+}
 
 function parseEnv(): Env {
   // Treat empty values (e.g. "SONARR_URL=") as unset.
@@ -82,7 +106,11 @@ function parseEnv(): Env {
       `Invalid environment variables:\n${z.prettifyError(result.error)}`,
     );
   }
-  return result.data;
+  const data = result.data;
+  return {
+    ...data,
+    BETTER_AUTH_SECRET: data.BETTER_AUTH_SECRET ?? loadOrCreateAuthSecret(data.DATABASE_PATH),
+  };
 }
 
 export const env = parseEnv();

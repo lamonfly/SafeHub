@@ -70,6 +70,12 @@ export const auth = betterAuth({
     maxPasswordLength: PASSWORD_PREFIX.length + 1000,
   },
   telemetry: { enabled: false },
+  // Without BETTER_AUTH_URL, better-auth cannot tell http from https and in
+  // production would mark cookies Secure, which browsers drop on plain
+  // http://<LAN IP>, so login would never stick. Plain cookies work on both;
+  // set BETTER_AUTH_URL=https://... to get Secure cookies behind HTTPS.
+  // (Login runs through Server Actions, whose origin Next.js checks itself.)
+  ...(env.BETTER_AUTH_URL ? {} : { advanced: { useSecureCookies: false } }),
   // HTTP routes SafeHub does not use. Disabling them leaves auth.api calls
   // working:
   // - sign-up: accounts are only created by the setup Server Action

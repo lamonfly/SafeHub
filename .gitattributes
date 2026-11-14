@@ -1,0 +1,4 @@
+# Files used inside the Linux container must keep LF line endings, even when
+# checked out on Windows (a CRLF shebang fails with "not found").
+*.sh text eol=lf
+Dockerfile text eol=lf

@@ -94,7 +94,8 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 
 - **Web app, not native mobile.** Phones get it as an installable PWA. Native apps cannot do background monitoring, are blocked from ARP/MAC scanning, and would hold every API key on the device.
 - **Host: the Proxmox mini PC** (decided), inside the existing Docker guest (LXC or VM), never on the Proxmox host itself. The guest must be bridged to the LAN (`vmbr0`) so WoL broadcasts and ARP reach other machines. Ship as a Docker image with `network_mode: host`. The NAS stays a possible fallback host; the code does not depend on which one.
-- **Docker:** `Dockerfile` builds Next's `output: "standalone"` server (Debian slim, runs as non-root, healthcheck on `/api/health`). `compose.yaml` mounts `./data` (SQLite) and `./certs` (CA files, read-only) and reads `.env`. The build uses placeholder env values; real config is runtime-only. Copy any new runtime folder (like `drizzle/`) into the runner stage. Deploy steps and the credentials table live in `README.md`; keep both in sync when adding env vars.
+- **Zero-config start:** `compose.yaml` + `docker compose up -d` must be enough. Never add a setting the app cannot start without: the login secret is generated into `data/auth-secret`, `BETTER_AUTH_URL` is optional (unset means plain cookies, see `lib/auth.ts`), `.env` is optional (`required: false`), and `docker-entrypoint.sh` chowns `/app/data` then drops to PUID/PGID with `setpriv`. New settings need a safe default, or their feature shows as "not configured".
+- **Docker:** `Dockerfile` builds Next's `output: "standalone"` server (Debian slim, healthcheck on `/api/health`, app runs unprivileged via the entrypoint). `compose.yaml` builds from the GitHub repo, mounts `./data` (SQLite + secret) and `./certs` (CA files, read-only), and takes settings from `environment:` or an optional `.env`. Paths in settings stay relative to `/app`. The build uses placeholder env values; real config is runtime-only. Copy any new runtime folder (like `drizzle/`) into the runner stage. `.sh` files and the Dockerfile keep LF endings (`.gitattributes`). Deploy steps and the settings table live in `README.md`; keep both in sync when adding env vars.
 - **The host cannot wake itself.** SafeHub can wake the NAS and other machines, not the mini PC it runs on. If the mini PC is down, the dashboard is down. Keep the app small enough that moving it between hosts is easy.
 - **Remote access via Tailscale/WireGuard** to the host. Never port-forward the app or WoL to the internet. Remote WoL works because the phone talks to SafeHub, and SafeHub sends the broadcast on the LAN.
 - **Power loss:** WoL cannot recover from an outage. Machines rely on BIOS/DSM "power on after AC loss".
@@ -107,7 +108,7 @@ This app can power machines on/off and control services. Treat it as an admin to
 - Never expose it to the internet directly. Access via LAN, VPN or Caddy with auth.
 - Destructive or disruptive actions (shutdown, stop VM, restart container) need an explicit confirmation in the UI.
 - Restrict scanner targets to private ranges (RFC 1918) by default.
-- Secrets live in `.env.local` (gitignored). Keep `.env.example` updated with every variable name and no values.
+- Secrets live in `.env.local` (gitignored) in development; in deployment in `compose.yaml` or `.env`. Keep `.env.example` updated with every variable name and no values.
 
 ## Conventions
 

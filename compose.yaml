@@ -1,19 +1,31 @@
-# SafeHub. See README.md "Deploy" for setup.
+# SafeHub. `docker compose up -d`, then open http://<this machine>:3000.
+# Everything is optional; add service settings when you want them, either
+# below under `environment:` or in a .env file next to this one.
 services:
   safehub:
-    build: .
+    build:
+      context: https://github.com/lamonfly/SafeHub.git#main
     image: safehub:latest
     container_name: safehub
     # Host networking: needed for Wake on LAN broadcasts and for the scanner
     # to see MAC addresses. The app listens directly on the host's PORT.
     network_mode: host
-    # Run as the owner of ./data on the host (Synology users are often
-    # uid 1026, gid 100). Check with: id <your-user>
-    user: "${PUID:-1000}:${PGID:-1000}"
-    env_file: .env
-    # The app runs in /app, so the relative paths in .env (./data/safehub.db,
-    # ./certs/<file>.pem) land in these folders. The right-hand side must stay
-    # absolute; Docker requires it.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Owner of ./data on the host (Synology users are often 1026 / 100).
+      PUID: 1000
+      PGID: 1000
+      # PORT: 3000
+      # Service settings, e.g.:
+      # PROXMOX_URL: https://192.168.1.10:8006
+      # PROXMOX_TOKEN_ID: root@pam!safehub
+      # PROXMOX_TOKEN_SECRET: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+      # SONARR_URL: http://127.0.0.1:8989
+      # SONARR_API_KEY: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    # Left: folders next to this file. Right: where the app sees them (it
+    # runs in /app, so relative paths like ./certs/ca.pem work in settings).
     volumes:
       - ./data:/app/data
       - ./certs:/app/certs:ro
