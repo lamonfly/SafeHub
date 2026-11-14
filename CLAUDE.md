@@ -107,6 +107,13 @@ This app can power machines on/off and control services. Treat it as an admin to
 - Destructive or disruptive actions (shutdown, stop VM, restart container) need an explicit confirmation in the UI.
 - Secrets live in `.env.local` (gitignored) in development; in deployment in `compose.yaml` or `.env`. Keep `.env.example` updated with every variable name and no values.
 
+## History and alerts
+
+- `lib/metrics/sampler.ts` runs once a minute from `instrumentation.ts` (guarded on `globalThis`, never overlapping): `collect.ts` reads everything configured through the normal adapters, `store.ts` saves minute samples (7 days) and hourly avg/max (90 days), then `lib/alerts/rules.ts` updates alerts. Series names live in `metrics/series.ts`; renaming one starts a new history.
+- better-sqlite3 binds JS numbers as REAL: every time-bucket expression must use `CAST(ts / bucket AS INTEGER)`.
+- Alerts (`alert` table): one row per problem with start, end, peak, unread flag. Rules open on a sustained condition and close only below a lower threshold (hysteresis). Escalation to critical marks the alert unread again. Alerts for subjects that vanished (guest stopped) close only if their system answered; otherwise the system's "unreachable" alert covers it. Thresholds are in `rules.ts`.
+- UI: `Sparkline` (server SVG, no library) inside `UsageBar`; `/history/{synology | node/<n> | guest/<n>/<vmid>}` with Recharts (client component `history-chart.tsx`, colors from M3 CSS variables); `/alerts`; `OpenAlertsCard` on the dashboard; unread badge in `AppHeader`. Times are formatted client-side (`LocalTime`) because the container runs in UTC. Helpers called from server components must not live in `"use client"` files.
+
 ## UI
 
 - **Material Design 3.** Colors are M3 roles defined once in `src/app/globals.css` (light + dark) and used as Tailwind colors (`bg-surface-container-low`, `text-on-surface-variant`, `bg-primary` ...). Never use raw Tailwind palette colors (`red-500`) or ad-hoc grays. Font: Roboto.

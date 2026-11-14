@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
+import { OpenAlertsCard } from "@/components/alerts/open-alerts-card";
 import { AppHeader, PageBody } from "@/components/app-header";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { ProxmoxCard } from "@/components/proxmox/proxmox-card";
@@ -39,6 +40,7 @@ export default async function DashboardPage() {
     <>
       <AppHeader userName={user.name} />
       <PageBody>
+        <OpenAlertsCard />
         {show.synology && (
           <Suspense fallback={<CardFallback title="Synology" />}>
             <SynologyCard />

@@ -8,6 +8,9 @@ import { placeServices, guestKey } from "@/lib/integrations/placement";
 import { getProxmoxOverview, type GuestWithAddresses } from "@/lib/integrations/proxmox";
 import type { ProxmoxNode } from "@/lib/integrations/proxmox/schemas";
 import { getServiceStatuses, hasConfiguredServices, type ServiceStatus } from "@/lib/integrations/services";
+import { HistoryLink } from "@/components/history/history-link";
+import { series } from "@/lib/metrics/series";
+import { readTrends } from "@/lib/metrics/store";
 import { GuestActions } from "./guest-actions";
 
 function tone(status: string): StatusTone {
@@ -23,12 +26,13 @@ function serviceTone(service: ServiceStatus): [StatusTone, string] {
 }
 
 function NodeTile({ node, guestCount }: { node: ProxmoxNode; guestCount: number }) {
+  const trends = readTrends([series.nodeCpu(node.node), series.nodeRam(node.node)]);
   return (
     <Tile>
       <div className="flex items-center justify-between gap-2">
         <span className="flex items-center gap-2 text-base font-medium text-on-surface">
           <StatusDot tone={tone(node.status)} label={node.status} />
-          {node.node}
+          <HistoryLink href={`/history/node/${encodeURIComponent(node.node)}`}>{node.node}</HistoryLink>
           <span className="text-xs font-normal text-on-surface-variant">
             {guestCount} {guestCount === 1 ? "guest" : "guests"}
           </span>
@@ -36,11 +40,17 @@ function NodeTile({ node, guestCount }: { node: ProxmoxNode; guestCount: number 
         <span className="text-xs text-on-surface-variant">up {formatUptime(node.uptime)}</span>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <UsageBar label="CPU" percent={node.cpu * 100} detail={`${node.maxcpu} cores`} />
+        <UsageBar
+          label="CPU"
+          percent={node.cpu * 100}
+          detail={`${node.maxcpu} cores`}
+          trend={trends.get(series.nodeCpu(node.node))}
+        />
         <UsageBar
           label="RAM"
           percent={node.maxmem > 0 ? (node.mem / node.maxmem) * 100 : 0}
           detail={node.maxmem > 0 ? `${formatBytes(node.mem)} / ${formatBytes(node.maxmem)}` : undefined}
+          trend={trends.get(series.nodeRam(node.node))}
         />
       </div>
     </Tile>
@@ -87,7 +97,12 @@ function GuestRow({ guest, services }: { guest: GuestWithAddresses; services: Se
           <StatusDot tone={tone(guest.status)} label={guest.status} className="mt-[7px]" />
           <div className="min-w-0">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate text-base text-on-surface">{guest.name ?? `#${guest.vmid}`}</span>
+              <HistoryLink
+                href={`/history/guest/${encodeURIComponent(guest.node)}/${guest.vmid}`}
+                className="truncate text-base text-on-surface"
+              >
+                {guest.name ?? `#${guest.vmid}`}
+              </HistoryLink>
               <span className="shrink-0 rounded bg-secondary-container px-1.5 text-[11px] leading-4 font-medium text-on-secondary-container">
                 {guest.type === "qemu" ? "VM" : "LXC"}
               </span>

@@ -11,5 +11,9 @@ export async function register() {
     const { discovered } = await import("@/lib/integrations/discovery");
     const found = Object.entries(discovered).map(([app, { url }]) => `${app} (${url})`);
     if (found.length > 0) console.log(`Auto-setup from ./appdata: ${found.join(", ")}`);
+
+    // History for charts and the alert rules: one sample per minute.
+    const { startSampler } = await import("@/lib/metrics/sampler");
+    startSampler();
   }
 }

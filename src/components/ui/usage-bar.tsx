@@ -1,6 +1,19 @@
-// M3 linear progress indicator used as a usage meter (CPU, RAM, disks).
+import { Sparkline } from "./sparkline";
+
+// M3 linear progress indicator used as a usage meter (CPU, RAM, disks),
+// optionally with the last 24 hours as a small trend line above it.
 // The track color follows the level: primary, warning at 75 %, error at 90 %.
-export function UsageBar({ label, percent, detail }: { label: string; percent: number; detail?: string }) {
+export function UsageBar({
+  label,
+  percent,
+  detail,
+  trend,
+}: {
+  label: string;
+  percent: number;
+  detail?: string;
+  trend?: number[];
+}) {
   const clamped = Math.min(Math.max(percent, 0), 100);
   const [bar, track] =
     clamped >= 90
@@ -18,6 +31,7 @@ export function UsageBar({ label, percent, detail }: { label: string; percent: n
           {Math.round(clamped)}%
         </span>
       </div>
+      {trend && <Sparkline values={trend} label={label} />}
       <div
         className={`flex h-1 gap-1 overflow-hidden rounded-full ${track}`}
         role="meter"

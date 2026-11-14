@@ -5,6 +5,9 @@ import { StatusDot } from "@/components/ui/status-dot";
 import { UsageBar } from "@/components/ui/usage-bar";
 import { formatBytes, formatUptime } from "@/lib/format";
 import { getSynologyOverview } from "@/lib/integrations/synology";
+import { series } from "@/lib/metrics/series";
+import { readTrends } from "@/lib/metrics/store";
+import { HistoryLink } from "@/components/history/history-link";
 
 export async function SynologyCard() {
   const result = await getSynologyOverview();
@@ -23,8 +26,17 @@ export async function SynologyCard() {
           .join(" · ")
       : undefined;
 
+  const trends =
+    result.status === "ok"
+      ? readTrends([
+          series.synologyCpu,
+          series.synologyRam,
+          ...result.data.volumes.map((volume) => series.synologyVolume(volume.name)),
+        ])
+      : new Map<string, number[]>();
+
   return (
-    <Card title="Synology" subtitle={subtitle}>
+    <Card title={<HistoryLink href="/history/synology">Synology</HistoryLink>} subtitle={subtitle}>
       {result.status === "error" &&
         (result.certificateChanged ? (
           <CertificateChanged message={result.message} {...result.certificateChanged} />
@@ -35,11 +47,12 @@ export async function SynologyCard() {
       {result.status === "ok" && (
         <div className="flex flex-col gap-5">
           <div className="grid gap-4 sm:grid-cols-2">
-            <UsageBar label="CPU" percent={result.data.cpuPercent} />
+            <UsageBar label="CPU" percent={result.data.cpuPercent} trend={trends.get(series.synologyCpu)} />
             <UsageBar
               label="RAM"
               percent={result.data.memory.usedPercent}
               detail={`of ${formatBytes(result.data.memory.totalBytes)}`}
+              trend={trends.get(series.synologyRam)}
             />
           </div>
 
@@ -49,6 +62,7 @@ export async function SynologyCard() {
                 label={volume.name}
                 percent={volume.totalBytes > 0 ? (volume.usedBytes / volume.totalBytes) * 100 : 0}
                 detail={`${formatBytes(volume.usedBytes)} / ${formatBytes(volume.totalBytes)}`}
+                trend={trends.get(series.synologyVolume(volume.name))}
               />
               {volume.status !== "normal" && (
                 <span className="text-xs font-medium text-error">Status: {volume.status}</span>

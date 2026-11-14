@@ -7,6 +7,8 @@ Self-hosted dashboard for a home lab. One page to see and control your servers a
 - **Proxmox:** each node with its VMs and LXCs as a tree: CPU, RAM, uptime, IP address, and the services running on each guest (matched by IP; VMs need the QEMU guest agent). Start, shut down, reboot, force stop and resume; destructive actions ask first.
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
 - **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr), Immich and Caddy. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders.
+- **History:** CPU, memory and disk usage of the NAS, Proxmox nodes and guests, recorded every minute. 24-hour trend lines on the dashboard; tap a name for charts over 24 hours, 7, 30 or 90 days.
+- **Alerts:** checked every minute, kept for 90 days. CPU or memory above 90 % for 5 minutes, volumes above 85 % (critical at 95 %), disks not healthy, services or machines not answering. Open problems show at the top of the dashboard; the bell shows unread alerts, and the Alerts page lists when each problem started, how long it lasted and its peak.
 - **Settings page:** add and change services in the browser; no file editing or restart. Proxmox can be connected with an admin login: SafeHub creates its own limited user and token.
 - **Update notice:** a badge in the header when GitHub has a newer version.
 - **Material Design 3, built for phones:** large touch targets, light and dark mode, installable as an app (Add to Home screen).
@@ -102,7 +104,7 @@ The container starts as root only to make `./data` writable, then runs SafeHub a
 sqlite3 data/safehub.db "DELETE FROM user;"
 ```
 
-**Backup:** the `data` folder holds the account database (including pinned certificates) and the login secret. Stop the container (`docker compose stop`) before copying it.
+**Backup:** the `data` folder holds the database (account, settings, pinned certificates, history and alerts) and the login secret. History takes a few tens of MB. Stop the container (`docker compose stop`) before copying it.
 
 ### Add to an existing Docker Compose stack
 
