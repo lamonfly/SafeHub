@@ -6,9 +6,9 @@ Self-hosted dashboard for a home lab. One page to see and control your servers a
 
 - **Proxmox:** each node with its VMs and LXCs as a tree: CPU, RAM, uptime, IP address, and the services running on each guest (matched by IP; VMs need the QEMU guest agent). Start, shut down, reboot, force stop and resume; destructive actions ask first.
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
-- **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr), Immich and Caddy. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders.
+- **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr) and Immich. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders.
 - **History:** CPU, memory and disk usage of the NAS, Proxmox nodes and guests, recorded every minute. 24-hour trend lines on the dashboard; tap a name for charts over 24 hours, 7, 30 or 90 days.
-- **Alerts:** checked every minute, kept for 90 days. CPU or memory above 90 % for 5 minutes, volumes above 85 % (critical at 95 %), disks not healthy, services or machines not answering. Open problems show at the top of the dashboard; the bell shows unread alerts, and the Alerts page lists when each problem started, how long it lasted and its peak.
+- **Alerts:** checked every minute, kept for 90 days. CPU or memory above 90 % for 5 minutes, volumes above 85 % (critical at 95 %), disks not healthy, services or machines not answering. Open problems show at the top of the dashboard; the bell counts current problems (it drops as soon as one is fixed), and the Alerts page lists when each problem started, how long it lasted and its peak.
 - **Settings page:** add and change services in the browser; no file editing or restart. Proxmox can be connected with an admin login: SafeHub creates its own limited user and token.
 - **Update notice:** a badge in the header when GitHub has a newer version.
 - **Material Design 3, built for phones:** large touch targets, light and dark mode, installable as an app (Add to Home screen).
@@ -26,7 +26,6 @@ Built with Next.js, better-auth, Drizzle (SQLite) and Tailwind CSS.
 - **Pick a real password.** SafeHub lets the password be anything, including empty, for convenience on a trusted LAN. Anyone who can reach the login page and guesses the username gets full control. Failed logins are limited (5 per 15 minutes per username), which slows guessing but does not replace a password.
 - **Give every API key the least rights it needs:** a Proxmox token with only `PVEAuditor` (plus `PVEVMUser` if you want the buttons), a dedicated Synology user, never your personal accounts.
 - **Keep your keys private.** Whichever file holds them (`compose.yaml` or `.env`): `chmod 600`, never commit it, never paste it into issues. `.env` is gitignored; a `compose.yaml` with keys is not.
-- **Caddy's admin API has no authentication.** Only connect it when Caddy and SafeHub share a Docker network and the API has no published port (see below).
 - **Certificates are pinned on first use.** Proxmox and Synology usually have self-signed certificates. SafeHub trusts the certificate it sees on the first connection and refuses a different one later, like SSH does with host keys. If you renew or replace a certificate, the card shows its new fingerprint and an "Accept new certificate" button; accept only if you made that change. `*_ALLOW_SELF_SIGNED=true` turns this protection off for a service.
 
 Found a security issue? Please report it privately through GitHub's "Report a vulnerability" (Security tab) instead of opening a public issue.
@@ -85,7 +84,6 @@ If the login secret changes, values saved on the Settings page can no longer be 
 | Jellyfin API key | Jellyfin: Dashboard → API Keys → + | `JELLYFIN_URL`, `JELLYFIN_API_KEY` | |
 | Seerr API key | Automatic (see above), or Seerr: Settings → General → API Key | `SEERR_URL`, `SEERR_API_KEY` | |
 | Immich API key | Immich (as admin): Account Settings → API Keys | `IMMICH_URL`, `IMMICH_API_KEY` | |
-| Caddy admin address | Caddyfile global `admin` option | `CADDY_ADMIN_URL` | Read the warning in `.env.example` first. |
 
 **Keys in `compose.yaml` or `.env`?** Both work. If `compose.yaml` holds keys, treat it like a secret file: `chmod 600 compose.yaml`, and never commit or share it. Write a literal `$` in a value as `$$`, because Compose reads `$` as a variable. A separate `.env` keeps keys out of a file you may want to share or put in git.
 
@@ -158,19 +156,6 @@ docker compose logs -f safehub
 ```
 
 **SafeHub in its own folder** (Quick start) can still use container names: uncomment the `networks:` lines at the bottom of its `compose.yaml` and set the stack's network name (`docker network ls`, usually `<folder>_default`). Otherwise use the LAN address and published port of each service.
-
-**Caddy in the same stack:** SafeHub reaches Caddy's admin API over the stack network, so the API never needs a published port. Let it listen inside the container and accept that address:
-
-```
-# Caddyfile, global options
-{
-	admin 0.0.0.0:2019 {
-		origins caddy:2019
-	}
-}
-```
-
-Then set `CADDY_ADMIN_URL=http://caddy:2019`. Do not add `2019` to Caddy's `ports:`. Note that every container on that network can reach the admin API, which has no authentication.
 
 ### Synology NAS
 

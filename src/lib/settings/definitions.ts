@@ -56,12 +56,6 @@ export const settingGroups: SettingGroup[] = [
   { id: "jellyfin", title: "Jellyfin", fields: urlAndKey("JELLYFIN", 8096, "Dashboard > API Keys") },
   { id: "immich", title: "Immich", fields: urlAndKey("IMMICH", 2283, "Account Settings > API Keys, admin for stats") },
   {
-    id: "caddy",
-    title: "Caddy",
-    help: "The admin API has no authentication; keep it on a private Docker network.",
-    fields: [{ key: "CADDY_ADMIN_URL", label: "Admin API URL", type: "url", placeholder: "http://caddy:2019" }],
-  },
-  {
     id: "updates",
     title: "Updates",
     help: "SafeHub checks GitHub once a week and shows a badge when a newer version exists. This is its only outgoing request of its own.",

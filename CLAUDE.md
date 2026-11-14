@@ -23,7 +23,7 @@ Services (running on Proxmox):
 - **Jellyfin**: media server (REST API, API key)
 - **Seerr**: media requests (Overseerr/Jellyseerr API, `X-Api-Key`)
 - **Immich**: photos (REST API, `x-api-key`)
-- **Caddy**: reverse proxy (admin API, default `localhost:2019`)
+- **Caddy**: reverse proxy (not monitored; the integration was removed on purpose)
 
 Real hostnames, IPs, ports and keys live in env/config, never in code.
 
@@ -53,7 +53,7 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 - `schemas.ts`: zod schemas for API responses and for action input (validate anything that ends up in a URL).
 - `index.ts`: `server-only`. Builds a client from `env` (null when unset) with `createHttpClient` (`../http.ts`: base URL, auth headers, per-service TLS agent from `../tls.ts`, 5 s timeout, zod-parsed JSON). Public functions return `IntegrationResult<T>` (`../result.ts`): `ok` / `not-configured` / `error`; wrap with `attempt()`. Never throw to the caller.
 - Small adapters can keep their schemas inline in `index.ts`.
-- Simple status services (\*arr, Bazarr, Jellyfin, Seerr, Immich, Caddy) return a `ServiceSummary` (version, stats, issues) and are registered in `src/lib/integrations/services.ts`; the dashboard's Services card renders that list. Adding a service = adapter + one registry line + env vars.
+- Simple status services (\*arr, Bazarr, Jellyfin, Seerr, Immich) return a `ServiceSummary` (version, stats, issues) and are registered in `src/lib/integrations/services.ts`; the dashboard's Services card renders that list. Adding a service = adapter + one registry line + env vars.
 - **Settings** (`src/lib/settings/`): integration settings come from `getSetting(key)` / `getFlag(key)`, never from `env` directly. Order: env (compose.yaml / .env, shown locked) > values saved on `/settings` (table `setting`, AES-256-GCM with a key derived from the login secret) > auto-setup. Field list in `definitions.ts`; every key must also exist in `env.ts`. Clients are built with `perSettings(build)`, which rebuilds after a save (`settingsVersion`), so changes apply without restart; module state tied to a config (Synology session, caches) must be created inside `perSettings` too. Never send saved secrets to the browser.
 - **Proxmox wizard** (`proxmox/connect.ts`): one admin login creates `safehub@pve` (no password) and token `safehub` (privsep 0, so the user's ACL applies: PVEAuditor, plus PVEVMUser if allowed) and saves the token. The admin password is never stored or logged.
 - **Update notice** (`lib/update.ts`): `SAFEHUB_BUILT_AT` (set in `next.config.ts` at build) vs the latest commit date on GitHub `main`, checked once a week while running and once after each start (1 h retry after a failure), off with `DISABLE_UPDATE_CHECK`. It is SafeHub's only outgoing request of its own; keep it that way.
@@ -111,8 +111,8 @@ This app can power machines on/off and control services. Treat it as an admin to
 
 - `lib/metrics/sampler.ts` runs once a minute from `instrumentation.ts` (guarded on `globalThis`, never overlapping): `collect.ts` reads everything configured through the normal adapters, `store.ts` saves minute samples (7 days) and hourly avg/max (90 days), then `lib/alerts/rules.ts` updates alerts. Series names live in `metrics/series.ts`; renaming one starts a new history.
 - better-sqlite3 binds JS numbers as REAL: every time-bucket expression must use `CAST(ts / bucket AS INTEGER)`.
-- Alerts (`alert` table): one row per problem with start, end, peak, unread flag. Rules open on a sustained condition and close only below a lower threshold (hysteresis). Escalation to critical marks the alert unread again. Alerts for subjects that vanished (guest stopped) close only if their system answered; otherwise the system's "unreachable" alert covers it. Thresholds are in `rules.ts`.
-- UI: `Sparkline` (server SVG, no library) inside `UsageBar`; `/history/{synology | node/<n> | guest/<n>/<vmid>}` with Recharts (client component `history-chart.tsx`, colors from M3 CSS variables); `/alerts`; `OpenAlertsCard` on the dashboard; unread badge in `AppHeader`. Times are formatted client-side (`LocalTime`) because the container runs in UTC. Helpers called from server components must not live in `"use client"` files.
+- Alerts (`alert` table): one row per problem with start, end, peak, unread flag. Rules open on a sustained condition and close only below a lower threshold (hysteresis). Escalation to critical marks the alert unread again. Alerts for subjects that vanished (guest stopped) close only if their system answered; otherwise the system's "unreachable" alert covers it. Alerts of services or connections removed from the settings close on the next check. Thresholds are in `rules.ts`.
+- UI: `Sparkline` (server SVG, no library) inside `UsageBar`; `/history/{synology | node/<n> | guest/<n>/<vmid>}` with Recharts (client component `history-chart.tsx`, colors from M3 CSS variables); `/alerts`; `OpenAlertsCard` on the dashboard; badge in `AppHeader` counting open alerts (red if any is critical); "unread" only highlights entries on /alerts. Times are formatted client-side (`LocalTime`) because the container runs in UTC. Helpers called from server components must not live in `"use client"` files.
 
 ## UI
 

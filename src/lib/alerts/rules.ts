@@ -130,6 +130,13 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): void {
   // "unreachable" alert covers it, so leave the rest open.
   for (const [key, existing] of open) {
     if (seen.has(key)) continue;
+    // Services and the Synology / Proxmox connections are checked every
+    // minute while configured, so a missing reading means it was removed
+    // from the settings: nothing left to alert about.
+    if (key.startsWith("service:") || key === "synology:up" || key === "proxmox:up") {
+      db.update(alert).set({ endedAt: now }).where(eq(alert.id, existing.id)).run();
+      continue;
+    }
     const source: Source | undefined = key.startsWith("synology:") || key.startsWith("disk:synology:")
       ? "synology"
       : key.startsWith("node:") || key.startsWith("guest:")

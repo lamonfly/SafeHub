@@ -52,7 +52,6 @@ services:
       # SEERR_API_KEY:
       # IMMICH_URL: http://192.168.1.20:2283
       # IMMICH_API_KEY:
-      # CADDY_ADMIN_URL: http://caddy:2019
 
       # Updates (checks GitHub once a week)
       # DISABLE_UPDATE_CHECK: "true"

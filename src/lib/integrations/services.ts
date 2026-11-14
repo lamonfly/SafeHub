@@ -11,7 +11,6 @@ import {
 } from "./arr";
 import { bazarrSummary, getBazarrClient } from "./bazarr";
 import { cacheFor } from "./cache";
-import { caddySummary, getCaddyClient } from "./caddy";
 import type { HttpClient, ServiceSummary } from "./http";
 import { getImmichClient, immichSummary } from "./immich";
 import { getJellyfinClient, jellyfinSummary } from "./jellyfin";
@@ -21,7 +20,7 @@ import { getSeerrClient, seerrSummary } from "./seerr";
 type ServiceDefinition = {
   key: string;
   name: string;
-  // Setting holding the tile's link; Caddy's admin API is not a web UI.
+  // Setting holding the tile's link.
   urlSetting?: string;
   client: () => HttpClient | null;
   summary: (client: HttpClient) => Promise<ServiceSummary>;
@@ -35,7 +34,6 @@ const services: ServiceDefinition[] = [
   { key: "radarr", name: "Radarr", urlSetting: "RADARR_URL", client: getRadarrClient, summary: radarrSummary },
   { key: "prowlarr", name: "Prowlarr", urlSetting: "PROWLARR_URL", client: getProwlarrClient, summary: prowlarrSummary },
   { key: "bazarr", name: "Bazarr", urlSetting: "BAZARR_URL", client: getBazarrClient, summary: bazarrSummary },
-  { key: "caddy", name: "Caddy", client: getCaddyClient, summary: caddySummary },
 ];
 
 export type ServiceStatus = {

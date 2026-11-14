@@ -64,6 +64,13 @@
       "when": 1794626989028,
       "tag": "0008_metrics_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1794628353493,
+      "tag": "0009_remove_caddy_setting",
+      "breakpoints": true
     }
   ]
 }

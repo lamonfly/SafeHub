@@ -1,7 +1,7 @@
 import { Suspense, type ReactNode } from "react";
 import Link from "next/link";
 import { signOut } from "@/app/(auth)/actions";
-import { unreadCount } from "@/lib/alerts/store";
+import { openAlerts } from "@/lib/alerts/store";
 import { Icon } from "./ui/icons";
 import { UpdateBadge } from "./update-badge";
 
@@ -11,7 +11,10 @@ const actionClass =
 
 // M3 small top app bar. Sticky, and padded for phone notches (safe areas).
 export function AppHeader({ userName }: { userName: string }) {
-  const unread = unreadCount();
+  // The badge counts current problems only; it drops as soon as one is
+  // resolved (the log on /alerts keeps the history).
+  const problems = openAlerts();
+  const critical = problems.some((item) => item.severity === "critical");
 
   return (
     <header className="sticky top-0 z-10 bg-surface/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-surface/85">
@@ -27,13 +30,18 @@ export function AppHeader({ userName }: { userName: string }) {
         </div>
         <form action={signOut} className="flex shrink-0 items-center">
           <span className="hidden px-2 text-sm text-on-surface-variant md:inline">{userName}</span>
-          <Link href="/alerts" className={actionClass} aria-label={unread ? `Alerts, ${unread} unread` : "Alerts"}>
+          <Link href="/alerts" className={actionClass} aria-label={problems.length ? `Alerts, ${problems.length} current problems` : "Alerts"}>
             <Icon name="bell" />
             <span className="hidden sm:inline">Alerts</span>
-            {unread > 0 && (
+            {problems.length > 0 && (
               // M3 badge: on the icon on phones, after the label on wider screens
-              <span className="absolute top-1.5 left-7 flex h-4 min-w-4 sm:static items-center justify-center rounded-full bg-error px-1 text-[11px] leading-none font-medium text-on-error">
-                {unread > 99 ? "99+" : unread}
+              // Red when something is critical, amber for warnings only.
+              <span
+                className={`absolute top-1.5 left-7 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[11px] leading-none font-medium sm:static ${
+                  critical ? "bg-error text-on-error" : "bg-warning text-surface"
+                }`}
+              >
+                {problems.length > 99 ? "99+" : problems.length}
               </span>
             )}
           </Link>

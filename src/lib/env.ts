@@ -70,7 +70,6 @@ const envSchema = z.object({
   SEERR_API_KEY: optionalSecret,
   IMMICH_URL: optionalUrl,
   IMMICH_API_KEY: optionalSecret,
-  CADDY_ADMIN_URL: optionalUrl,
 
   // Turns off the update check against GitHub.
   DISABLE_UPDATE_CHECK: optionalFlag,
