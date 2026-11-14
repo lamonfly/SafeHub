@@ -8,7 +8,7 @@ import { getFlag } from "@/lib/settings/store";
 // outgoing request of its own; DISABLE_UPDATE_CHECK turns it off.
 
 export const REPOSITORY = "lamonfly/SafeHub";
-const CHECK_EVERY_MS = 6 * 60 * 60_000;
+const CHECK_EVERY_MS = 7 * 24 * 60 * 60_000; // once a week
 const RETRY_AFTER_FAILURE_MS = 60 * 60_000;
 
 const commitSchema = z.object({

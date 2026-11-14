@@ -64,7 +64,7 @@ export const settingGroups: SettingGroup[] = [
   {
     id: "updates",
     title: "Updates",
-    help: "SafeHub checks GitHub every 6 hours and shows a badge when a newer version exists. This is its only outgoing request of its own.",
+    help: "SafeHub checks GitHub once a week and shows a badge when a newer version exists. This is its only outgoing request of its own.",
     fields: [{ key: "DISABLE_UPDATE_CHECK", label: "Don't check for updates", type: "flag" }],
   },
 ];
