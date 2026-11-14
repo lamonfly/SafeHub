@@ -36,8 +36,11 @@ export function createHttpClient(options: {
     // login page in front of it, not at the server's API.
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.includes("text/html")) {
+      // Where the request ended up tells the cause: a /web/ path means a
+      // missing URL base, another host means a login page in front.
+      const landed = response.redirected ? ` (redirected to ${response.url})` : "";
       throw new Error(
-        `${options.name} answered with a web page instead of API data. Check the URL: use the server address (e.g. http://192.168.1.20:8096), not a page of its web interface or a login page in front of it.`,
+        `${options.name} answered with a web page instead of API data${landed}. Check the URL: use the server address including any URL base (e.g. http://192.168.1.20:8096 or .../jellyfin), not a page of its web interface or a login page in front of it.`,
       );
     }
     return schema.parse(await response.json()) as z.infer<T>;
