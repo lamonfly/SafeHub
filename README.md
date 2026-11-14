@@ -22,7 +22,7 @@ Built with Next.js, better-auth, Drizzle (SQLite) and Tailwind CSS.
 - **Give every API key the least rights it needs:** a Proxmox token with only `PVEAuditor` (plus `PVEVMUser` if you want the buttons), a dedicated Synology user, never your personal accounts.
 - **Keep your keys private.** Whichever file holds them (`compose.yaml` or `.env`): `chmod 600`, never commit it, never paste it into issues. `.env` is gitignored; a `compose.yaml` with keys is not.
 - **Caddy's admin API has no authentication.** Only connect it when Caddy and SafeHub share a Docker network and the API has no published port (see below).
-- **Prefer certificate checks.** Use the `*_CA_CERT_PATH` options; `*_ALLOW_SELF_SIGNED=true` keeps traffic encrypted but cannot detect an impostor on your LAN.
+- **Certificates are pinned on first use.** Proxmox and Synology usually have self-signed certificates. SafeHub trusts the certificate it sees on the first connection and refuses a different one later, like SSH does with host keys. If you renew or replace a certificate, the card shows its new fingerprint and an "Accept new certificate" button; accept only if you made that change. `*_ALLOW_SELF_SIGNED=true` turns this protection off for a service.
 
 Found a security issue? Please report it privately through GitHub's "Report a vulnerability" (Security tab) instead of opening a public issue.
 
@@ -48,7 +48,7 @@ Settings are environment variables. Put them either under `environment:` in `com
 | Login secret | Automatic (`data/auth-secret`) | `BETTER_AUTH_SECRET` (optional) | Only set it to choose your own. Changing it signs everyone out. |
 | HTTPS address (optional) | Your reverse proxy, e.g. Caddy | `BETTER_AUTH_URL=https://safehub.example.lan` | Only when SafeHub is served over HTTPS: enables Secure cookies. Leave unset for plain `http://<IP>:3000`. |
 | Proxmox API token | Proxmox UI: Datacenter → Permissions → API Tokens | `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET` | The secret is shown only once. |
-| Proxmox CA certificate | Copy `/etc/pve/pve-root-ca.pem` from the Proxmox host into `./certs/` | `PROXMOX_CA_CERT_PATH=./certs/pve-root-ca.pem` | Or `PROXMOX_ALLOW_SELF_SIGNED=true` |
+| Proxmox / Synology certificates | Automatic: pinned on first connection | Optional: `*_CA_CERT_PATH=./certs/<ca>.pem` to verify against a CA instead | A changed certificate shows an "Accept new certificate" button on the card |
 | Synology user + password | DSM: Control Panel → User. Dedicated user, in `administrators`, 2FA off, all apps denied | `SYNOLOGY_URL`, `SYNOLOGY_USERNAME`, `SYNOLOGY_PASSWORD` | DSM 6 and 7 |
 | Sonarr / Radarr / Prowlarr / Bazarr API keys | Each app: Settings → General → API Key | `<APP>_URL`, `<APP>_API_KEY` | |
 | Jellyfin API key | Jellyfin: Dashboard → API Keys → + | `JELLYFIN_URL`, `JELLYFIN_API_KEY` | |
@@ -64,7 +64,7 @@ SafeHub runs on any always-on Linux machine with Docker that can reach your serv
 
 The container starts as root only to make `./data` writable, then runs SafeHub as `PUID`/`PGID` (default `1000`, set in `compose.yaml`).
 
-**Paths:** keep every path in settings relative (`DATABASE_PATH=./data/safehub.db`, `PROXMOX_CA_CERT_PATH=./certs/pve-root-ca.pem`). The app runs in `/app` inside the container, where `./data` and `./certs` are mounted from the project folder, so the same values work in Docker and in development.
+**Paths:** keep every path in settings relative (`DATABASE_PATH=./data/safehub.db`, `PROXMOX_CA_CERT_PATH=./certs/pve-root-ca.pem` if you use one). The app runs in `/app` inside the container, where `./data` and `./certs` are mounted from the project folder, so the same values work in Docker and in development.
 
 **Update:** `docker compose up -d --build` fetches the latest `main` from GitHub and restarts. Database migrations run automatically on start.
 
@@ -73,7 +73,7 @@ The container starts as root only to make `./data` writable, then runs SafeHub a
 sqlite3 data/safehub.db "DELETE FROM user;"
 ```
 
-**Backup:** the `data` folder holds the account database and the login secret. Stop the container (`docker compose stop`) before copying it.
+**Backup:** the `data` folder holds the account database (including pinned certificates) and the login secret. Stop the container (`docker compose stop`) before copying it.
 
 ### Add to an existing Docker Compose stack
 

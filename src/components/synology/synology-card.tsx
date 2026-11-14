@@ -1,3 +1,4 @@
+import { CertificateChanged } from "@/components/certificate/certificate-changed";
 import { UsageBar } from "@/components/ui/usage-bar";
 import { formatBytes, formatUptime } from "@/lib/format";
 import { getSynologyOverview } from "@/lib/integrations/synology";
@@ -30,11 +31,14 @@ export async function SynologyCard() {
         )}
       </div>
 
-      {result.status === "error" && (
-        <p role="alert" className="text-sm text-red-500">
-          Unreachable: {result.message}
-        </p>
-      )}
+      {result.status === "error" &&
+        (result.certificateChanged ? (
+          <CertificateChanged message={result.message} {...result.certificateChanged} />
+        ) : (
+          <p role="alert" className="text-sm text-red-500">
+            Unreachable: {result.message}
+          </p>
+        ))}
 
       {result.status === "ok" && (
         <div className="flex flex-col gap-4">

@@ -22,6 +22,7 @@ const client =
           Authorization: `PVEAPIToken=${env.PROXMOX_TOKEN_ID}=${env.PROXMOX_TOKEN_SECRET}`,
         },
         dispatcher: createTlsAgent({
+          pinName: "proxmox",
           caCertPath: env.PROXMOX_CA_CERT_PATH,
           allowSelfSigned: env.PROXMOX_ALLOW_SELF_SIGNED,
         }),

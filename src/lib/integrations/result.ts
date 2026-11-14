@@ -1,11 +1,19 @@
 import { z } from "zod";
+import { CertificateChangedError } from "./cert-error";
 
 // Every integration call returns one of these, so a service being down or
 // unconfigured never throws into the page.
 export type IntegrationResult<T> =
   | { status: "ok"; data: T }
   | { status: "not-configured" }
-  | { status: "error"; message: string };
+  | ErrorResult;
+
+export type ErrorResult = {
+  status: "error";
+  message: string;
+  // Set when a pinned certificate changed; the card offers to accept it.
+  certificateChanged?: { pinId: string; fingerprint: string };
+};
 
 // Runs an integration call, turning thrown errors into an error result.
 export async function attempt<T>(fn: () => Promise<T>): Promise<IntegrationResult<T>> {
@@ -18,7 +26,23 @@ export async function attempt<T>(fn: () => Promise<T>): Promise<IntegrationResul
 
 const loggedSchemaErrors = new Set<string>();
 
-export function errorResult(error: unknown): { status: "error"; message: string } {
+export function errorResult(error: unknown): ErrorResult {
+  // fetch wraps connection errors: the pin check failure is the cause.
+  const certificateError = [error, (error as { cause?: unknown } | undefined)?.cause].find(
+    (candidate) => candidate instanceof CertificateChangedError,
+  );
+  if (certificateError) {
+    return {
+      status: "error",
+      message:
+        "The certificate changed since SafeHub first connected. Accept it only if you renewed or replaced it.",
+      certificateChanged: {
+        pinId: certificateError.pinId,
+        fingerprint: certificateError.presentedFingerprint,
+      },
+    };
+  }
+
   // The API answered, but not in the shape the adapter expects (e.g. a new
   // service version). Keep the tile short; put the details in the server log
   // once per distinct error, not on every refresh.

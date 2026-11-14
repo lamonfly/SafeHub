@@ -58,6 +58,7 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 - Expensive or repeated calls go through `cacheFor(ttl, fn)` (`../cache.ts`): shares one in-flight request between tabs, never caches failures.
 - Schema mismatches (`ZodError`) show a short tile message; details are logged once on the server.
 - CA certificate paths are checked at boot in `env.ts`.
+- TLS for self-signed services (`tls.ts`, `createTlsAgent`): default is trust on first use. A certificate that verifies normally is accepted; otherwise the first fingerprint is pinned in the `cert_pin` table (id `<pinName>@host:port`) and a different one raises `CertificateChangedError`, which `errorResult` turns into `certificateChanged` so the card shows an Accept button (`components/certificate`). TLS session resumption is off so every connection shows its certificate. `*_CA_CERT_PATH` and `*_ALLOW_SELF_SIGNED` override per service.
 - UI in `src/components/<service>/`: a Server Component card that renders `ok` and `error`, and returns `null` for `not-configured`, client components for buttons, and a `"use server"` actions file that calls `requireSession()`, validates input, then calls `refresh()`.
 - **Hide what is not configured.** Each adapter exports a `<name>Configured` flag (`servicesConfigured` for the registry); `src/app/page.tsx` only renders cards whose flag is true, so unconfigured integrations never show, not even as a loading placeholder. With nothing configured the page shows one setup hint.
 - The dashboard re-renders every 10 s via `<AutoRefresh>` (paused when the tab is hidden).
@@ -82,7 +83,7 @@ Follow `src/lib/integrations/proxmox/` for every new service:
 - **One adapter per integration** under `src/lib/integrations/<name>/` (e.g. `proxmox`, `synology`, `sonarr`). Each adapter exposes typed functions and hides HTTP details. UI code never calls a service API directly.
 - **Validate all external data** at the adapter boundary (response shapes) and at the action boundary (user input).
 - **Fail soft.** A service being down must not break the dashboard. Every adapter returns a clear offline/error state; use timeouts on every request.
-- **Self-signed certificates**: Proxmox and DSM often use self-signed certs. Handle TLS trust per integration (custom CA or explicit opt-in flag), never globally via `NODE_TLS_REJECT_UNAUTHORIZED=0`.
+- **Self-signed certificates**: Proxmox and DSM often use self-signed certs. Handle TLS trust per integration (pinning by default, CA file or opt-out flag), never globally via `NODE_TLS_REJECT_UNAUTHORIZED=0`.
 
 ## Deployment
 

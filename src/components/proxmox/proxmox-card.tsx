@@ -1,3 +1,4 @@
+import { CertificateChanged } from "@/components/certificate/certificate-changed";
 import { formatBytes, formatPercent, formatUptime } from "@/lib/format";
 import { getProxmoxOverview } from "@/lib/integrations/proxmox";
 import type { ProxmoxGuest, ProxmoxNode } from "@/lib/integrations/proxmox/schemas";
@@ -42,11 +43,14 @@ export async function ProxmoxCard() {
     <section className="rounded-lg border border-foreground/15 p-4">
       <h2 className="mb-3 text-lg font-semibold">Proxmox</h2>
 
-      {result.status === "error" && (
-        <p role="alert" className="text-sm text-red-500">
-          Unreachable: {result.message}
-        </p>
-      )}
+      {result.status === "error" &&
+        (result.certificateChanged ? (
+          <CertificateChanged message={result.message} {...result.certificateChanged} />
+        ) : (
+          <p role="alert" className="text-sm text-red-500">
+            Unreachable: {result.message}
+          </p>
+        ))}
 
       {result.status === "ok" && (
         <div className="flex flex-col gap-4">

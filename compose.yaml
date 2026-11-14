@@ -21,14 +21,14 @@ services:
       # BETTER_AUTH_URL: https://safehub.example.lan
       # BETTER_AUTH_TRUSTED_ORIGINS: http://192.168.1.20:3000
 
-      # Proxmox
+      # Proxmox (certificate trusted automatically; the last two override that)
       # PROXMOX_URL: https://192.168.1.10:8006
       # PROXMOX_TOKEN_ID: root@pam!safehub
       # PROXMOX_TOKEN_SECRET:
       # PROXMOX_CA_CERT_PATH: ./certs/pve-root-ca.pem
       # PROXMOX_ALLOW_SELF_SIGNED: "true"
 
-      # Synology
+      # Synology (certificate trusted automatically; the last two override that)
       # SYNOLOGY_URL: https://192.168.1.11:5001
       # SYNOLOGY_USERNAME:
       # SYNOLOGY_PASSWORD:

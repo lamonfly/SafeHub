@@ -53,6 +53,7 @@ const config =
         username: env.SYNOLOGY_USERNAME,
         password: env.SYNOLOGY_PASSWORD,
         dispatcher: createTlsAgent({
+          pinName: "synology",
           caCertPath: env.SYNOLOGY_CA_CERT_PATH,
           allowSelfSigned: env.SYNOLOGY_ALLOW_SELF_SIGNED,
         }),
