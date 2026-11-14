@@ -11,10 +11,10 @@ services:
     # uid 1026, gid 100). Check with: id <your-user>
     user: "${PUID:-1000}:${PGID:-1000}"
     env_file: .env
-    environment:
-      DATABASE_PATH: /app/data/safehub.db
+    # The app runs in /app, so the relative paths in .env (./data/safehub.db,
+    # ./certs/<file>.pem) land in these folders. The right-hand side must stay
+    # absolute; Docker requires it.
     volumes:
       - ./data:/app/data
-      # CA certificates for Proxmox/DSM, e.g. /app/certs/pve-root-ca.pem
       - ./certs:/app/certs:ro
     restart: unless-stopped
