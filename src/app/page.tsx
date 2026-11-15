@@ -3,11 +3,13 @@ import Link from "next/link";
 import { OpenAlertsCard } from "@/components/alerts/open-alerts-card";
 import { AppHeader, PageBody } from "@/components/app-header";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { DockerCard } from "@/components/docker/docker-card";
 import { ProxmoxCard } from "@/components/proxmox/proxmox-card";
 import { ServicesCard } from "@/components/services/services-card";
 import { SynologyCard } from "@/components/synology/synology-card";
 import { buttonClass } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { isDockerConfigured } from "@/lib/integrations/docker";
 import { isProxmoxConfigured } from "@/lib/integrations/proxmox";
 import { hasConfiguredServices } from "@/lib/integrations/services";
 import { isSynologyConfigured } from "@/lib/integrations/synology";
@@ -33,8 +35,10 @@ export default async function DashboardPage() {
     synology: isSynologyConfigured(),
     services: hasConfiguredServices(),
     proxmox: isProxmoxConfigured(),
+    // With Proxmox, containers show under the guest running Docker instead.
+    docker: isDockerConfigured(),
   };
-  const anythingConfigured = show.synology || show.services || show.proxmox;
+  const anythingConfigured = show.synology || show.services || show.proxmox || show.docker;
 
   return (
     <>
@@ -54,6 +58,11 @@ export default async function DashboardPage() {
         {show.proxmox && (
           <Suspense fallback={<CardFallback title="Proxmox" />}>
             <ProxmoxCard />
+          </Suspense>
+        )}
+        {show.docker && !show.proxmox && (
+          <Suspense fallback={<CardFallback title="Docker" />}>
+            <DockerCard />
           </Suspense>
         )}
         {anythingConfigured ? (

@@ -103,6 +103,13 @@ function discoverApps(): Partial<Record<DiscoverableApp, DiscoveredApp>> {
     if (!entry.isDirectory()) continue;
     try {
       const result = discoverFolder(entry.name);
+      // The folder name becomes the host: one that is not a valid host name
+      // (e.g. "Sonarr Config") would make building the client throw and take
+      // the dashboard down, so skip it here.
+      if (result && !/^[A-Za-z0-9]([A-Za-z0-9_.-]*[A-Za-z0-9])?$/.test(entry.name)) {
+        throw new Error("the folder name is not a valid host name; name it like the container (e.g. sonarr)");
+      }
+      if (result) new URL(result.found.url);
       // First folder per app wins; a second Sonarr would need explicit settings.
       if (result && !apps[result.app]) apps[result.app] = result.found;
     } catch (error) {

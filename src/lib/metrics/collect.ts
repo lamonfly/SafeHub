@@ -1,5 +1,5 @@
 import "server-only";
-import { getProxmoxOverview, isProxmoxConfigured } from "@/lib/integrations/proxmox";
+import { backupMaxAgeDays, getProxmoxOverview, isProxmoxConfigured } from "@/lib/integrations/proxmox";
 import { getServiceStatuses, hasConfiguredServices } from "@/lib/integrations/services";
 import { getSynologyOverview, isSynologyConfigured } from "@/lib/integrations/synology";
 import { series } from "./series";
@@ -21,17 +21,31 @@ export type Reading = {
 
 export type DiskReading = { key: string; label: string; status: string };
 
-export type Snapshot = { readings: Reading[]; disks: DiskReading[]; reachable: Set<Source> };
+// Guests that have backups, with the age of the newest one. Guests that were
+// never backed up are left out: often deliberate (test machines).
+export type BackupReading = { key: string; label: string; ageDays: number; maxAgeDays: number };
+export type BackupJobReading = { key: string; node: string; ok: boolean; status: string };
+
+export type Snapshot = {
+  readings: Reading[];
+  disks: DiskReading[];
+  reachable: Set<Source>;
+  // Sources set up in the settings this round (reachable or not).
+  configured?: Set<Source>;
+  backups?: BackupReading[];
+  backupJobs?: BackupJobReading[];
+};
 
 const percent = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0);
 
 export async function collect(): Promise<Snapshot> {
-  const snapshot: Snapshot = { readings: [], disks: [], reachable: new Set() };
+  const snapshot: Snapshot = { readings: [], disks: [], reachable: new Set(), configured: new Set() };
   const add = (reading: Reading) => snapshot.readings.push(reading);
 
   await Promise.all([
     (async () => {
       if (!isSynologyConfigured()) return;
+      snapshot.configured?.add("synology");
       const result = await getSynologyOverview();
       add({ series: series.synologyUp, value: result.status === "ok" ? 1 : 0, kind: "up", label: "Synology", graceMinutes: 3 });
       if (result.status !== "ok") return;
@@ -55,6 +69,7 @@ export async function collect(): Promise<Snapshot> {
 
     (async () => {
       if (!isProxmoxConfigured()) return;
+      snapshot.configured?.add("proxmox");
       const result = await getProxmoxOverview();
       add({ series: series.proxmoxUp, value: result.status === "ok" ? 1 : 0, kind: "up", label: "Proxmox", graceMinutes: 3 });
       if (result.status !== "ok") return;
@@ -65,6 +80,22 @@ export async function collect(): Promise<Snapshot> {
         if (!online) continue;
         add({ series: series.nodeCpu(node.node), value: node.cpu * 100, kind: "cpu", label: `Node ${node.node}`, source: "proxmox" });
         add({ series: series.nodeRam(node.node), value: percent(node.mem, node.maxmem), kind: "ram", label: `Node ${node.node}`, source: "proxmox" });
+      }
+      // A storage that could not be read may hold newer backups: with partial
+      // data, leave backups out so their alerts neither open nor close.
+      if (result.data.backups && result.data.backups.failedStorages.length === 0) {
+        const maxAgeDays = backupMaxAgeDays();
+        snapshot.backups = result.data.guests.flatMap((guest) =>
+          typeof guest.backupAgeMs === "number"
+            ? [{
+                key: `backup:${guest.node}/${guest.vmid}`,
+                label: `${guest.name ?? guest.vmid} (${guest.type === "qemu" ? "VM" : "LXC"} ${guest.vmid})`,
+                ageDays: guest.backupAgeMs / 86_400_000,
+                maxAgeDays,
+              }]
+            : [],
+        );
+        snapshot.backupJobs = result.data.backups.jobs.map((job) => ({ key: `backup-job:${job.node}`, ...job }));
       }
       for (const guest of result.data.guests) {
         if (guest.status !== "running") continue;

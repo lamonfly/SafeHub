@@ -3,6 +3,7 @@ import { z } from "zod";
 import { perSettings } from "@/lib/settings/memo";
 import { getSetting } from "@/lib/settings/store";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
+import { serviceTlsAgent } from "../tls";
 
 const infoSchema = z.object({ Version: z.string() });
 const sessionsSchema = z.array(z.object({ NowPlayingItem: z.unknown().optional() }));
@@ -29,6 +30,7 @@ export const getJellyfinClient = perSettings((): HttpClient | null => {
         name: "Jellyfin",
         baseUrl: url,
         headers: { Authorization: `MediaBrowser Token="${apiKey}"` },
+        dispatcher: serviceTlsAgent("jellyfin"),
       })
     : null;
 });

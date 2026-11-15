@@ -2,7 +2,7 @@
 // environment variable; a value set in compose.yaml / .env wins and shows as
 // locked. Core settings (login, database) and CA paths stay env-only.
 
-export type FieldType = "url" | "text" | "secret" | "flag";
+export type FieldType = "url" | "text" | "secret" | "flag" | "days";
 
 export type SettingField = {
   key: string;
@@ -35,6 +35,7 @@ export const settingGroups: SettingGroup[] = [
       { key: "PROXMOX_TOKEN_ID", label: "Token ID", type: "text", placeholder: "safehub@pve!safehub" },
       { key: "PROXMOX_TOKEN_SECRET", label: "Token secret", type: "secret" },
       { key: "PROXMOX_ALLOW_SELF_SIGNED", label: "Skip certificate checks", type: "flag" },
+      { key: "PROXMOX_BACKUP_MAX_AGE_DAYS", label: "Backup alert after (days, default 7)", type: "days", placeholder: "7" },
     ],
   },
   {
@@ -56,9 +57,20 @@ export const settingGroups: SettingGroup[] = [
   { id: "jellyfin", title: "Jellyfin", fields: urlAndKey("JELLYFIN", 8096, "Dashboard > API Keys") },
   { id: "immich", title: "Immich", fields: urlAndKey("IMMICH", 2283, "Account Settings > API Keys, admin for stats") },
   {
+    id: "notifications",
+    title: "Notifications",
+    help: "Alerts as push notifications through ntfy. Install the ntfy app, subscribe to the same topic, and pick a long random topic name: on ntfy.sh anyone who knows it can read the messages.",
+    fields: [
+      { key: "NTFY_TOPIC", label: "Topic", type: "text", placeholder: "safehub-kx7q2m9v4t" },
+      { key: "NTFY_URL", label: "Server (optional)", type: "url", placeholder: "https://ntfy.sh or http://ntfy" },
+      { key: "NTFY_TOKEN", label: "Access token (optional)", type: "secret" },
+      { key: "NTFY_CRITICAL_ONLY", label: "Only critical alerts", type: "flag" },
+    ],
+  },
+  {
     id: "updates",
     title: "Updates",
-    help: "SafeHub checks GitHub once a week and shows a badge when a newer version exists. This is its only outgoing request of its own.",
+    help: "SafeHub checks GitHub once a week and shows a badge when a newer version exists. Apart from notifications you set up, this is its only outgoing request of its own.",
     fields: [{ key: "DISABLE_UPDATE_CHECK", label: "Don't check for updates", type: "flag" }],
   },
 ];

@@ -17,20 +17,30 @@ const encryptionKey = createHash("sha256")
   .update(`safehub-settings:${env.BETTER_AUTH_SECRET}`)
   .digest();
 
-function encrypt(plain: string): string {
+const TAG_LENGTH = 16;
+
+// v2: the setting's key is authenticated data, so a value copied into another
+// row (e.g. a password into a field shown in plain text) fails to decrypt.
+// v1 (no key binding) is still read, and rewritten as v2 on first load.
+function encrypt(key: string, plain: string): string {
   const iv = randomBytes(12);
-  const cipher = createCipheriv("aes-256-gcm", encryptionKey, iv);
+  const cipher = createCipheriv("aes-256-gcm", encryptionKey, iv, { authTagLength: TAG_LENGTH });
+  cipher.setAAD(Buffer.from(key, "utf8"));
   const data = Buffer.concat([cipher.update(plain, "utf8"), cipher.final()]);
-  return ["v1", iv, cipher.getAuthTag(), data].map((part) => (typeof part === "string" ? part : part.toString("base64"))).join(":");
+  return ["v2", iv, cipher.getAuthTag(), data].map((part) => (typeof part === "string" ? part : part.toString("base64"))).join(":");
 }
 
-function decrypt(stored: string): string | undefined {
+function decrypt(key: string, stored: string): { value: string; outdated: boolean } | undefined {
   try {
     const [version, iv, tag, data] = stored.split(":");
-    if (version !== "v1") return undefined;
-    const decipher = createDecipheriv("aes-256-gcm", encryptionKey, Buffer.from(iv, "base64"));
+    if (version !== "v1" && version !== "v2") return undefined;
+    const decipher = createDecipheriv("aes-256-gcm", encryptionKey, Buffer.from(iv, "base64"), {
+      authTagLength: TAG_LENGTH,
+    });
+    if (version === "v2") decipher.setAAD(Buffer.from(key, "utf8"));
     decipher.setAuthTag(Buffer.from(tag, "base64"));
-    return Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8");
+    const value = Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8");
+    return { value, outdated: version === "v1" };
   } catch {
     return undefined;
   }
@@ -44,11 +54,14 @@ function savedValues(): Map<string, string> {
   if (!saved) {
     saved = new Map();
     for (const row of db.select().from(setting).all()) {
-      const value = decrypt(row.value);
-      if (value === undefined) {
+      const decrypted = decrypt(row.key, row.value);
+      if (decrypted === undefined) {
         console.warn(`Settings: cannot decrypt ${row.key} (login secret changed?); enter it again.`);
-      } else {
-        saved.set(row.key, value);
+        continue;
+      }
+      saved.set(row.key, decrypted.value);
+      if (decrypted.outdated) {
+        db.update(setting).set({ value: encrypt(row.key, decrypted.value) }).where(eq(setting.key, row.key)).run();
       }
     }
   }
@@ -85,6 +98,7 @@ const validators: Record<FieldType, z.ZodType<string>> = {
   text: z.string().trim().min(1).max(500),
   secret: z.string().min(1).max(2000),
   flag: z.enum(["true"]),
+  days: z.string().regex(/^[1-9]\d{0,2}$/),
 };
 
 export class SettingValidationError extends Error {}
@@ -106,7 +120,7 @@ export function saveSettings(changes: Record<string, string | null>): void {
       if (value === null) {
         tx.delete(setting).where(eq(setting.key, key)).run();
       } else {
-        const stored = encrypt(value);
+        const stored = encrypt(key, value);
         tx.insert(setting)
           .values({ key, value: stored })
           .onConflictDoUpdate({ target: setting.key, set: { value: stored, updatedAt: new Date() } })

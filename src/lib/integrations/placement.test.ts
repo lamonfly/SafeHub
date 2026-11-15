@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { placeServices } from "./placement";
+import { placeDockerHost, placeServices } from "./placement";
 import type { GuestWithAddresses } from "./proxmox";
 import type { ServiceStatus } from "./services";
 
@@ -48,5 +48,26 @@ describe("placeServices", () => {
     expect((await placeServices([servarr, second], [service("sonarr", "172.20.0.5")])).size).toBe(0);
     // A LAN address is still unambiguous.
     expect((await placeServices([servarr, second], [service("x", "192.168.0.104")])).has("pve/104")).toBe(true);
+  });
+});
+
+describe("placeDockerHost", () => {
+  const vm = guest(101, ["192.168.0.101"], ["172.17.0.1/16", "172.20.0.1/16"]);
+  const other = guest(102, ["192.168.0.102"], ["172.17.0.1/16"]);
+
+  it("matches the host name to the guest name", async () => {
+    expect(placeDockerHost([vm, other], { name: "GUEST101", gateways: [] })).toBe("pve/101");
+  });
+
+  it("matches the set of Docker network gateways, and does not guess between guests", async () => {
+    const host = (gateways: string[]) => ({ name: "docker", gateways });
+    expect(placeDockerHost([vm, other], host(["172.17.0.1", "172.20.0.1"]))).toBe("pve/101");
+    expect(placeDockerHost([vm, other], host(["172.17.0.1"]))).toBeUndefined();
+    expect(placeDockerHost([vm, other], host([]))).toBeUndefined();
+  });
+
+  it("falls back to the address SafeHub was opened at", () => {
+    expect(placeDockerHost([vm, other], { name: "docker", gateways: [] }, "192.168.0.102")).toBe("pve/102");
+    expect(placeDockerHost([vm, other], { name: "docker", gateways: [] }, "safehub.lan")).toBeUndefined();
   });
 });

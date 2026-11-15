@@ -19,6 +19,8 @@ beforeAll(async () => {
   write("bazarr/config/config.yaml", "general:\n  port: 6767\n  base_url: ''\nauth:\n  apikey: bazarr-key\n");
   write("jellyseerr/settings.json", JSON.stringify({ main: { apiKey: "seerr-key" } }));
   write("broken/config.xml", "<Config><Port>8989</Port></Config>");
+  // Not a valid host name: skipped (sorts before "sonarr", so it would win).
+  write("Sonarr Config/config.xml", "<Config><Port>8989</Port><ApiKey>wrong-key</ApiKey><InstanceName>Sonarr</InstanceName></Config>");
   mkdirSync(join(root, "appdata", "empty"));
   process.chdir(root);
   discovery = await import("./discovery");

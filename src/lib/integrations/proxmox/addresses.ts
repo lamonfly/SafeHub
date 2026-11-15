@@ -79,18 +79,35 @@ async function fetchNetworks(client: HttpClient, guest: ProxmoxGuest): Promise<G
   );
 }
 
-const cache = new Map<string, { at: number; networks: GuestNetworks }>();
+// A failed lookup (timeout, guest agent still starting after a boot) is
+// asked again sooner, and keeps the last known addresses meanwhile, so
+// services and containers do not drop out of the tree for minutes.
+const RETRY_MS = 30_000;
+
+const cache = new Map<string, { at: number; ok: boolean; networks: GuestNetworks }>();
+let cachedFor: HttpClient | undefined;
 const none: GuestNetworks = { addresses: [], dockerNetworks: [] };
 
 // Never throws: a guest without an agent, or a token without the right
 // permission, just has no addresses.
 export async function getGuestNetworks(client: HttpClient, guest: ProxmoxGuest): Promise<GuestNetworks> {
   if (guest.status !== "running") return none;
+  // A new client means new settings (another Proxmox): forget everything.
+  if (cachedFor !== client) {
+    cache.clear();
+    cachedFor = client;
+  }
   const key = `${guest.node}/${guest.vmid}`;
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.at < CACHE_MS) return cached.networks;
+  if (cached && Date.now() - cached.at < (cached.ok ? CACHE_MS : RETRY_MS)) return cached.networks;
 
-  const networks = await fetchNetworks(client, guest).catch(() => none);
-  cache.set(key, { at: Date.now(), networks });
-  return networks;
+  try {
+    const networks = await fetchNetworks(client, guest);
+    cache.set(key, { at: Date.now(), ok: true, networks });
+    return networks;
+  } catch {
+    const networks = cached?.networks ?? none;
+    cache.set(key, { at: Date.now(), ok: false, networks });
+    return networks;
+  }
 }

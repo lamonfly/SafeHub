@@ -4,6 +4,7 @@ import { perSettings } from "@/lib/settings/memo";
 import { getSetting } from "@/lib/settings/store";
 import { resolveService } from "../discovery";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
+import { serviceTlsAgent } from "../tls";
 
 // Works with Seerr, Jellyseerr and Overseerr (same API).
 const statusSchema = z.object({ version: z.string() });
@@ -17,7 +18,7 @@ const requestCountSchema = z.object({
 export const getSeerrClient = perSettings((): HttpClient | null => {
   const service = resolveService("seerr", getSetting("SEERR_URL"), getSetting("SEERR_API_KEY"));
   return service
-    ? createHttpClient({ name: "Seerr", baseUrl: service.url, headers: { "X-Api-Key": service.apiKey } })
+    ? createHttpClient({ name: "Seerr", baseUrl: service.url, headers: { "X-Api-Key": service.apiKey }, dispatcher: serviceTlsAgent("seerr") })
     : null;
 });
 

@@ -1,10 +1,14 @@
+import { headers } from "next/headers";
 import { CertificateChanged } from "@/components/certificate/certificate-changed";
+import { ContainerChips } from "@/components/docker/container-chips";
+import { hostnameOf } from "@/lib/request-host";
 import { Banner } from "@/components/ui/banner";
 import { Card, Tile } from "@/components/ui/card";
 import { StatusDot, type StatusTone } from "@/components/ui/status-dot";
 import { UsageBar } from "@/components/ui/usage-bar";
-import { formatBytes, formatPercent, formatUptime } from "@/lib/format";
-import { placeServices, guestKey } from "@/lib/integrations/placement";
+import { formatBytes, formatDuration, formatPercent, formatUptime } from "@/lib/format";
+import { getDockerHost, isDockerConfigured, type DockerContainer } from "@/lib/integrations/docker";
+import { placeDockerHost, placeServices, guestKey } from "@/lib/integrations/placement";
 import { getProxmoxOverview, type GuestWithAddresses } from "@/lib/integrations/proxmox";
 import type { ProxmoxNode } from "@/lib/integrations/proxmox/schemas";
 import { getServiceStatuses, hasConfiguredServices, type ServiceStatus } from "@/lib/integrations/services";
@@ -77,10 +81,18 @@ function ServiceChip({ service }: { service: ServiceStatus }) {
   );
 }
 
-// One branch of the tree: a guest with its addresses, the services found on
-// it, and its controls. Actions sit on the right on wide screens and below
+// One branch of the tree: a guest with its addresses, the services and
+// Docker containers found on it, and its controls. Actions sit on the right on wide screens and below
 // on phones.
-function GuestRow({ guest, services }: { guest: GuestWithAddresses; services: ServiceStatus[] }) {
+function GuestRow({
+  guest,
+  services,
+  containers,
+}: {
+  guest: GuestWithAddresses;
+  services: ServiceStatus[];
+  containers: DockerContainer[];
+}) {
   const running = guest.status === "running";
   const details = running
     ? [
@@ -114,6 +126,12 @@ function GuestRow({ guest, services }: { guest: GuestWithAddresses; services: Se
             {guest.addresses.length > 0 && (
               <div className="truncate font-mono text-xs text-on-surface-variant">{guest.addresses.join(", ")}</div>
             )}
+            {/* Only when backup data is available (undefined = unknown). */}
+            {guest.backupAgeMs !== undefined && (
+              <div className={`text-xs ${guest.backupOverdue ? "font-medium text-warning" : "text-on-surface-variant"}`}>
+                {guest.backupAgeMs === null ? "No backup" : `Backup ${formatDuration(guest.backupAgeMs)} ago`}
+              </div>
+            )}
           </div>
         </div>
         {services.length > 0 && (
@@ -123,10 +141,20 @@ function GuestRow({ guest, services }: { guest: GuestWithAddresses; services: Se
             ))}
           </div>
         )}
+        {containers.length > 0 && (
+          <div className="pl-[22px]">
+            <ContainerChips containers={containers} hostAddress={guest.addresses[0]} />
+          </div>
+        )}
       </div>
       <GuestActions guest={guest} />
     </li>
   );
+}
+
+// Host name or IP the dashboard was opened at.
+async function openedAtHost(): Promise<string | undefined> {
+  return hostnameOf((await headers()).get("host"));
 }
 
 export async function ProxmoxCard() {
@@ -134,10 +162,19 @@ export async function ProxmoxCard() {
   // Unconfigured: show nothing (the dashboard normally skips the card).
   if (result.status === "not-configured") return null;
 
-  const placed =
+  const [placed, docker] = await Promise.all([
     result.status === "ok" && hasConfiguredServices()
-      ? await placeServices(result.data.guests, await getServiceStatuses())
-      : new Map<string, ServiceStatus[]>();
+      ? getServiceStatuses().then((statuses) => placeServices(result.data.guests, statuses))
+      : new Map<string, ServiceStatus[]>(),
+    isDockerConfigured() ? getDockerHost() : undefined,
+  ]);
+  // Guest running the Docker host; undefined when it cannot be told.
+  const dockerGuest =
+    result.status === "ok" && docker?.status === "ok"
+      ? placeDockerHost(result.data.guests, docker.data, await openedAtHost())
+      : undefined;
+  const containersOf = (guest: GuestWithAddresses) =>
+    docker?.status === "ok" && dockerGuest === guestKey(guest) ? docker.data.containers : [];
 
   return (
     <Card title="Proxmox">
@@ -158,7 +195,12 @@ export async function ProxmoxCard() {
                 // Tree: guests hang off a line under their node.
                 <ul className="ml-4 border-l-2 border-outline-variant pl-3 sm:ml-6 sm:pl-5">
                   {guests.map((guest) => (
-                    <GuestRow key={guestKey(guest)} guest={guest} services={placed.get(guestKey(guest)) ?? []} />
+                    <GuestRow
+                      key={guestKey(guest)}
+                      guest={guest}
+                      services={placed.get(guestKey(guest)) ?? []}
+                      containers={containersOf(guest)}
+                    />
                   ))}
                 </ul>
               ) : (
@@ -167,6 +209,18 @@ export async function ProxmoxCard() {
             </div>
           );
         })}
+
+      {docker?.status === "error" && <Banner tone="error">Docker unreachable: {docker.message}</Banner>}
+      {docker?.status === "ok" && !dockerGuest && (
+        <Tile>
+          <div className="text-base font-medium text-on-surface">Docker on {docker.data.name}</div>
+          <p className="text-sm text-on-surface-variant">
+            Not matched to a guest. For a VM, install the QEMU guest agent, or give the guest the same name as
+            its host name.
+          </p>
+          <ContainerChips containers={docker.data.containers} hostAddress={await openedAtHost()} />
+        </Tile>
+      )}
     </Card>
   );
 }

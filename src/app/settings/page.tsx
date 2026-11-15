@@ -1,9 +1,12 @@
+import Link from "next/link";
 import { AppHeader, PageBody } from "@/components/app-header";
 import { GroupForm, type FieldState } from "@/components/settings/group-form";
+import { NotificationTest } from "@/components/settings/notification-test";
 import { ProxmoxConnectForm } from "@/components/settings/proxmox-connect-form";
 import { Banner } from "@/components/ui/banner";
 import { Card } from "@/components/ui/card";
 import { discovered } from "@/lib/integrations/discovery";
+import { isNotificationsConfigured } from "@/lib/notifications/ntfy";
 import { settingGroups } from "@/lib/settings/definitions";
 import { getSetting, settingSource } from "@/lib/settings/store";
 import { requireSession } from "@/lib/session";
@@ -21,6 +24,9 @@ export default async function SettingsPage() {
             Saved encrypted in SafeHub&apos;s database. Values set in <code>compose.yaml</code> or <code>.env</code>{" "}
             win and are shown as locked.
           </p>
+          <Link href="/diagnostics" className="mt-1 inline-flex min-h-12 items-center self-start text-sm font-medium text-primary hover:underline">
+            Check setup →
+          </Link>
         </div>
 
         {settingGroups.map((group) => {
@@ -45,6 +51,7 @@ export default async function SettingsPage() {
               )}
               <GroupForm groupId={group.id} fields={fields} />
               {group.id === "proxmox" && <ProxmoxConnectForm defaultUrl={getSetting("PROXMOX_URL")} />}
+              {group.id === "notifications" && <NotificationTest configured={isNotificationsConfigured()} />}
             </Card>
           );
         })}

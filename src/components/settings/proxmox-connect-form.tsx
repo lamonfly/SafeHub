@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { CertificateChanged } from "@/components/certificate/certificate-changed";
 import { Banner } from "@/components/ui/banner";
 import { Button } from "@/components/ui/button";
 import { Checkbox, TextField } from "@/components/ui/text-field";
@@ -53,7 +54,12 @@ export function ProxmoxConnectForm({ defaultUrl }: { defaultUrl?: string }) {
               {pending ? "Connecting…" : "Connect"}
             </Button>
           </div>
-          {state.error && <Banner tone="error">{state.error}</Banner>}
+          {state.error &&
+            (state.certificateChanged ? (
+              <CertificateChanged message={`${state.error} Then press Connect again.`} {...state.certificateChanged} />
+            ) : (
+              <Banner tone="error">{state.error}</Banner>
+            ))}
           {state.message && <Banner tone="info">{state.message}</Banner>}
         </form>
       </div>

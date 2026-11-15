@@ -29,6 +29,13 @@ export function createTlsAgent(options: {
   return new Agent({ connect: pinningConnector(options.pinName) });
 }
 
+// Agent for a simple status service (*arr, Bazarr, Jellyfin, Seerr, Immich):
+// trust on first use, so an https:// URL with a self-signed certificate works
+// and a changed certificate shows the Accept button on its tile.
+export function serviceTlsAgent(pinName: string): Agent {
+  return createTlsAgent({ pinName, allowSelfSigned: false });
+}
+
 function pinningConnector(pinName: string): buildConnector.connector {
   // No session resumption: every connection must present its certificate.
   const connect = buildConnector({ rejectUnauthorized: false, maxCachedSessions: 0 });

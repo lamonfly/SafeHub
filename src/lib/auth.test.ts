@@ -59,4 +59,10 @@ describe("sign-in", () => {
     // Other usernames are not affected by felix's lockout.
     expect(await signIn("someone_else", "x")).toMatch(/^401:/);
   });
+
+  it("limits attempts sent in parallel too", async () => {
+    const results = await Promise.all(Array.from({ length: 20 }, () => signIn("parallel", "wrong")));
+    expect(results.filter((result) => result.startsWith("401:"))).toHaveLength(5);
+    expect(results.filter((result) => result.startsWith("429:"))).toHaveLength(15);
+  });
 });

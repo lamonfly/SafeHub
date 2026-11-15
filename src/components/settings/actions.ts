@@ -4,11 +4,17 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { errorResult } from "@/lib/integrations/result";
 import { createProxmoxToken } from "@/lib/integrations/proxmox/connect";
+import { sendTestNotification } from "@/lib/notifications/ntfy";
 import { settingGroups } from "@/lib/settings/definitions";
 import { saveSettings, settingSource, SettingValidationError } from "@/lib/settings/store";
 import { requireSession } from "@/lib/session";
 
-export type SettingsState = { error?: string; message?: string };
+export type SettingsState = {
+  error?: string;
+  message?: string;
+  // Proxmox wizard: the pinned certificate changed (e.g. after a reinstall).
+  certificateChanged?: { pinId: string; fingerprint: string };
+};
 
 function findGroup(formData: FormData) {
   return settingGroups.find((group) => group.id === formData.get("group"));
@@ -85,8 +91,20 @@ export async function connectProxmoxAction(_state: SettingsState, formData: Form
       PROXMOX_TOKEN_SECRET: token.secret,
     });
   } catch (error) {
-    return { error: errorResult(error).message };
+    const result = errorResult(error);
+    return { error: result.message, certificateChanged: result.certificateChanged };
   }
   refresh();
   return { message: "Connected. SafeHub now uses its own Proxmox token; the password was not saved." };
+}
+
+// Settings > Notifications: sends a test push with the saved settings.
+export async function testNotificationAction(): Promise<SettingsState> {
+  await requireSession();
+  try {
+    await sendTestNotification();
+  } catch (error) {
+    return { error: errorResult(error).message };
+  }
+  return { message: "Sent. Check the ntfy app." };
 }

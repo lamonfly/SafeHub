@@ -4,6 +4,7 @@ import { perSettings } from "@/lib/settings/memo";
 import { getSetting } from "@/lib/settings/store";
 import { resolveService } from "../discovery";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
+import { serviceTlsAgent } from "../tls";
 
 const statusSchema = z.object({ data: z.object({ bazarr_version: z.string() }) });
 // Counts of items missing subtitles.
@@ -19,7 +20,7 @@ const healthSchema = z.object({
 export const getBazarrClient = perSettings((): HttpClient | null => {
   const service = resolveService("bazarr", getSetting("BAZARR_URL"), getSetting("BAZARR_API_KEY"));
   return service
-    ? createHttpClient({ name: "Bazarr", baseUrl: service.url, headers: { "X-API-KEY": service.apiKey } })
+    ? createHttpClient({ name: "Bazarr", baseUrl: service.url, headers: { "X-API-KEY": service.apiKey }, dispatcher: serviceTlsAgent("bazarr") })
     : null;
 });
 

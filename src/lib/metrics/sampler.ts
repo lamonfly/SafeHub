@@ -1,5 +1,6 @@
 import "server-only";
 import { evaluateAlerts } from "@/lib/alerts/rules";
+import { notify } from "@/lib/notifications/ntfy";
 import { collect } from "./collect";
 import { minuteStart, RAW_RETENTION_MS, rollUpAndPrune, saveSamples } from "./store";
 
@@ -23,11 +24,15 @@ async function tick(): Promise<void> {
       minuteStart(now),
       snapshot.readings.map(({ series, value }) => ({ series, value })),
     );
-    evaluateAlerts(snapshot, new Date(now));
+    await notify(evaluateAlerts(snapshot, new Date(now)), now);
 
     // Hourly averages for complete hours, and pruning, once per hour.
     if (now - lastRollUp >= HOUR) {
-      rollUpAndPrune(lastRollUp || now - RAW_RETENTION_MS, now);
+      // First run after a start: begin at the first hour whose minute samples
+      // are all still kept, so a correct hourly value is never replaced by
+      // one computed from a partly pruned hour.
+      const oldestKept = now - RAW_RETENTION_MS;
+      rollUpAndPrune(lastRollUp || oldestKept - (oldestKept % HOUR) + HOUR, now);
       lastRollUp = now - (now % HOUR);
     }
   } catch (error) {

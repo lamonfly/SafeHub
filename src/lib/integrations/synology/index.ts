@@ -1,4 +1,5 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { fetch, type Agent } from "undici";
 import { z } from "zod";
 import { env } from "@/lib/env";
@@ -48,22 +49,33 @@ const envelopeSchema = z.object({
   error: z.object({ code: z.number() }).optional(),
 });
 
-type Config = { webapi: URL; username: string; password: string; dispatcher: Agent };
+// Session, API paths and login backoff of one connection (URL + account).
+type ConnectionState = {
+  apiInfo?: Promise<z.infer<typeof apiInfoSchema>>;
+  session?: Promise<string>;
+  loginBlocked?: { until: number; message: string };
+};
+
+type Config = { webapi: URL; username: string; password: string; dispatcher: Agent; state: ConnectionState };
+
+// Kept while URL and account stay the same, so saving an unrelated setting
+// neither drops the session nor lifts the login backoff (retrying a wrong
+// password would trip DSM auto-block). A login still running for an old
+// connection only writes to that connection's state.
+let connection: { identity: string; state: ConnectionState } | undefined;
 
 const getConfig = perSettings((): Config | null => {
-  // New settings: forget the old session, API paths and login backoff.
-  apiInfo = undefined;
-  session = undefined;
-  loginBlocked = undefined;
-
   const url = getSetting("SYNOLOGY_URL");
   const username = getSetting("SYNOLOGY_USERNAME");
   const password = getSetting("SYNOLOGY_PASSWORD");
   if (!url || !username || !password) return null;
+  const identity = createHash("sha256").update(JSON.stringify([url, username, password])).digest("hex");
+  if (connection?.identity !== identity) connection = { identity, state: {} };
   return {
     webapi: new URL("/webapi/", url),
     username,
     password,
+    state: connection.state,
     dispatcher: createTlsAgent({
       pinName: "synology",
       caCertPath: env.SYNOLOGY_CA_CERT_PATH,
@@ -90,7 +102,10 @@ async function post<T extends z.ZodType>(
     dispatcher: config.dispatcher,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`Synology ${response.status} ${response.statusText}`.trim());
+  if (!response.ok) {
+    await response.body?.cancel(); // release the connection now
+    throw new Error(`Synology ${response.status} ${response.statusText}`.trim());
+  }
 
   const body = envelopeSchema.parse(await response.json());
   if (!body.success) {
@@ -116,10 +131,9 @@ const apiInfoSchema = z.record(
   z.object({ path: z.string(), minVersion: z.number(), maxVersion: z.number() }),
 );
 
-let apiInfo: Promise<z.infer<typeof apiInfoSchema>> | undefined;
-
 function getApiInfo(config: Config) {
-  if (!apiInfo) {
+  const { state } = config;
+  if (!state.apiInfo) {
     const pending = post(
       config,
       "query.cgi",
@@ -127,11 +141,11 @@ function getApiInfo(config: Config) {
       apiInfoSchema,
     );
     pending.catch(() => {
-      if (apiInfo === pending) apiInfo = undefined;
+      if (state.apiInfo === pending) state.apiInfo = undefined;
     });
-    apiInfo = pending;
+    state.apiInfo = pending;
   }
-  return apiInfo;
+  return state.apiInfo;
 }
 
 // Calls an API at its advertised path, using the requested version or the
@@ -151,7 +165,7 @@ async function call<T extends z.ZodType>(
     return await post(config, info.path, { ...params, version: String(version) }, schema);
   } catch (error) {
     // API moved (e.g. after a DSM upgrade): look the paths up again next time.
-    if (error instanceof DsmError && error.code === 102) apiInfo = undefined;
+    if (error instanceof DsmError && error.code === 102) config.state.apiInfo = undefined;
     throw error;
   }
 }
@@ -160,29 +174,28 @@ async function call<T extends z.ZodType>(
 // The session is never logged out: a container restart leaves it behind, and
 // DSM expires idle sessions on its own. Logging out on SIGTERM would race
 // Next's own shutdown for little gain.
-let session: Promise<string> | undefined;
-
 function getSid(config: Config, expired?: Promise<string>): Promise<string> {
+  const { state } = config;
   // Only replace the session that failed; another call may have renewed it already.
-  if (!session || session === expired) {
+  if (!state.session || state.session === expired) {
     const pending = login(config);
     pending.catch(() => {
-      if (session === pending) session = undefined;
+      if (state.session === pending) state.session = undefined;
     });
-    session = pending;
+    state.session = pending;
   }
-  return session;
+  return state.session;
 }
 
 // After a rejected login, stop trying for a while. Retrying on every refresh
 // would trip DSM auto-block, which bans this host's IP from all of DSM.
 const LOGIN_BACKOFF_MS = 5 * 60_000;
-let loginBlocked: { until: number; message: string } | undefined;
-
 async function login(config: Config): Promise<string> {
-  if (loginBlocked && Date.now() < loginBlocked.until) {
-    const minutes = Math.ceil((loginBlocked.until - Date.now()) / 60_000);
-    throw new Error(`${loginBlocked.message}. Next attempt in ${minutes} min.`);
+  const { state } = config;
+  const blocked = state.loginBlocked;
+  if (blocked && Date.now() < blocked.until) {
+    const minutes = Math.ceil((blocked.until - Date.now()) / 60_000);
+    throw new Error(`${blocked.message}. Next attempt in ${minutes} min.`);
   }
   try {
     const data = await call(
@@ -198,12 +211,12 @@ async function login(config: Config): Promise<string> {
       },
       z.object({ sid: z.string() }),
     );
-    loginBlocked = undefined;
+    state.loginBlocked = undefined;
     return data.sid;
   } catch (error) {
     if (error instanceof DsmError && loginErrors[error.code]) {
       const message = `Synology login failed: ${loginErrors[error.code]}`;
-      loginBlocked = { until: Date.now() + LOGIN_BACKOFF_MS, message };
+      state.loginBlocked = { until: Date.now() + LOGIN_BACKOFF_MS, message };
       throw new Error(message);
     }
     throw error;

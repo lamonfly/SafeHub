@@ -59,7 +59,13 @@ export default async function HistoryPage({ params, searchParams }: PageProps<"/
   const requested = (await searchParams).range;
   const range: Range = rangeNames.includes(requested as Range) ? (requested as Range) : "24h";
 
-  const description = await describe(target.map(decodeURIComponent));
+  let segments: string[];
+  try {
+    segments = target.map(decodeURIComponent);
+  } catch {
+    notFound(); // malformed escape such as %E0
+  }
+  const description = await describe(segments);
   if (!description) notFound();
   const data = readSeries(description.charts.map((chart) => chart.series), range);
 

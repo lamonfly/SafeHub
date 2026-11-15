@@ -17,6 +17,8 @@ export function createHttpClient(options: {
   baseUrl: string;
   headers?: Record<string, string>;
   dispatcher?: Agent;
+  // Default 5 s; longer only for calls that wait for work to finish.
+  timeoutMs?: number;
 }): HttpClient {
   // Trailing slash so relative paths append instead of replacing the last segment.
   const baseUrl = new URL(options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`);
@@ -26,9 +28,14 @@ export function createHttpClient(options: {
       method,
       headers: { Accept: "application/json", ...options.headers },
       dispatcher: options.dispatcher,
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
     });
+    // No body: 204 No Content, or 304 Not Modified (SafeHub never sends
+    // conditional requests; Docker uses it for "already in that state").
+    if (response.status === 204 || response.status === 304) return schema.parse(undefined) as z.infer<T>;
     if (!response.ok) {
+      // Release the connection now instead of when the body is collected.
+      await response.body?.cancel();
       throw new Error(`${options.name} ${response.status} ${response.statusText}`.trim());
     }
     // A web page instead of JSON almost always means the URL points at the
@@ -39,6 +46,7 @@ export function createHttpClient(options: {
       // Where the request ended up tells the cause: a /web/ path means a
       // missing URL base, another host means a login page in front.
       const landed = response.redirected ? ` (redirected to ${response.url})` : "";
+      await response.body?.cancel();
       throw new Error(
         `${options.name} answered with a web page instead of API data${landed}. Check the URL: use the server address including any URL base (e.g. http://192.168.1.20:8096 or .../jellyfin), not a page of its web interface or a login page in front of it.`,
       );

@@ -53,7 +53,7 @@ function Field({ field }: { field: FieldState }) {
       label={field.label}
       name={field.key}
       type={field.type === "secret" ? "password" : field.type === "url" ? "url" : "text"}
-      inputMode={field.type === "url" ? "url" : undefined}
+      inputMode={field.type === "url" ? "url" : field.type === "days" ? "numeric" : undefined}
       defaultValue={field.type === "secret" ? undefined : field.value}
       placeholder={placeholder}
       supportingText={locked && field.type !== "secret" ? LOCKED : undefined}
@@ -70,6 +70,8 @@ export function GroupForm({ groupId, fields }: { groupId: string; fields: FieldS
   const [state, formAction, pending] = useActionState(saveGroupAction, {});
   const [clearState, setClearState] = useState<SettingsState>({});
   const [clearing, startClear] = useTransition();
+  // Feedback shows the result of whichever action ran last.
+  const [lastAction, setLastAction] = useState<"save" | "clear">("save");
   const [confirm, dialog] = useConfirm();
   const hasSaved = fields.some((field) => field.source === "saved");
   const allLocked = fields.every((field) => field.source === "env");
@@ -82,11 +84,12 @@ export function GroupForm({ groupId, fields }: { groupId: string; fields: FieldS
       danger: true,
     });
     if (!confirmed) return;
+    setLastAction("clear");
     startClear(async () => setClearState(await clearGroupAction(groupId)));
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-4">
+    <form action={formAction} onSubmit={() => setLastAction("save")} className="flex flex-col gap-4">
       <input type="hidden" name="group" value={groupId} />
       <div className="grid gap-x-4 gap-y-5 pt-2 sm:grid-cols-2">
         {fields.map((field) => (
@@ -104,7 +107,7 @@ export function GroupForm({ groupId, fields }: { groupId: string; fields: FieldS
             Remove
           </Button>
         )}
-        <Feedback state={state.error || state.message ? state : clearState} />
+        <Feedback state={lastAction === "clear" ? clearState : state} />
       </div>
       {dialog}
     </form>

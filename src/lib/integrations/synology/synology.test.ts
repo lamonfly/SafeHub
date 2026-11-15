@@ -66,5 +66,10 @@ describe("Synology", () => {
     expect(first).toMatchObject({ status: "error", message: "Synology login failed: wrong account or password" });
     expect(second.status === "error" && second.message).toContain("Next attempt in 5 min");
     expect(logins).toBe(1);
+    // Saving an unrelated setting must not lift the backoff.
+    store.saveSettings({ SONARR_URL: "http://sonarr:8989" });
+    const third = await synology.getSynologyOverview();
+    expect(third.status === "error" && third.message).toContain("Next attempt in 5 min");
+    expect(logins).toBe(1);
   });
 });

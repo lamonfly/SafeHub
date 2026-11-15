@@ -28,6 +28,7 @@ services:
       # PROXMOX_TOKEN_SECRET:
       # PROXMOX_CA_CERT_PATH: ./certs/pve-root-ca.pem
       # PROXMOX_ALLOW_SELF_SIGNED: "true"
+      # PROXMOX_BACKUP_MAX_AGE_DAYS: "7"   # warn when a guest's newest backup is older
 
       # Synology (certificate trusted automatically; the last two override that)
       # SYNOLOGY_URL: https://192.168.1.11:5001
@@ -53,6 +54,14 @@ services:
       # IMMICH_URL: http://192.168.1.20:2283
       # IMMICH_API_KEY:
 
+      # Phone notifications via ntfy (topic: pick a long random name).
+      # With the ntfy service below: NTFY_URL: http://ntfy, NTFY_TOPIC: safehub
+      # and the token from "ntfy token add" (README: Own ntfy server).
+      # NTFY_TOPIC: safehub-kx7q2m9v4t
+      # NTFY_URL: https://ntfy.sh
+      # NTFY_TOKEN:
+      # NTFY_CRITICAL_ONLY: "true"
+
       # Updates (checks GitHub once a week)
       # DISABLE_UPDATE_CHECK: "true"
     volumes:
@@ -64,9 +73,31 @@ services:
       # - ../servarr/prowlarr:/app/appdata/prowlarr:ro
       # - ../servarr/bazarr:/app/appdata/bazarr:ro
       # - ../servarr/jellyseerr:/app/appdata/jellyseerr:ro
+      # Docker: list this machine's containers and start/stop/restart them.
+      # Gives SafeHub full control of Docker, which equals root on this machine.
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
     # To reach another stack's containers by name (http://sonarr:8989):
     # networks: [default, servarr]
+
+  # Own ntfy server for phone notifications (optional; Android app). Nothing
+  # leaves your network. Uncomment, set the base URL to this machine's address,
+  # then create the users and token as described in README.md (Own ntfy server).
+  # ntfy:
+  #   image: binwiederhier/ntfy:latest
+  #   container_name: ntfy
+  #   command: serve
+  #   ports:
+  #     - "8080:80"
+  #   environment:
+  #     NTFY_BASE_URL: http://192.168.1.20:8080   # what the phone app connects to
+  #     NTFY_CACHE_FILE: /var/lib/ntfy/cache.db   # keeps messages while the phone is offline
+  #     NTFY_CACHE_DURATION: 24h
+  #     NTFY_AUTH_FILE: /var/lib/ntfy/user.db
+  #     NTFY_AUTH_DEFAULT_ACCESS: deny-all        # only the users you create
+  #   volumes:
+  #     - ./ntfy:/var/lib/ntfy
+  #   restart: unless-stopped
 
 # networks:
 #   servarr:

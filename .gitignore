@@ -37,6 +37,9 @@ yarn-error.log*
 # local database
 /data
 
+# self-hosted ntfy (users, tokens, message cache)
+/ntfy
+
 # app config folders for auto-setup (contain API keys)
 /appdata
 

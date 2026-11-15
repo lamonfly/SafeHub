@@ -30,6 +30,12 @@ export function createFailureLimiter({ maxFailures, windowMs }: { maxFailures: n
       if (entries.size > 10_000) for (const k of entries.keys()) current(k);
       entries.set(key, { failures: 1, resetAt: Date.now() + windowMs });
     },
+    // Takes back one recorded failure (an attempt counted up front that
+    // turned out to succeed).
+    refund(key: string): void {
+      const entry = current(key);
+      if (entry && entry.failures > 0) entry.failures--;
+    },
     reset(key: string): void {
       entries.delete(key);
     },

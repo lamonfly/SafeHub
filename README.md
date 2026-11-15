@@ -5,15 +5,18 @@ Self-hosted dashboard for a home lab. One page to see and control your servers a
 ## Features
 
 - **Proxmox:** each node with its VMs and LXCs as a tree: CPU, RAM, uptime, IP address, and the services running on each guest (matched by IP, including apps in Docker inside a guest; VMs need the QEMU guest agent). Start, shut down, reboot, force stop and resume; destructive actions ask first.
+- **Backups:** age of each guest's newest Proxmox backup (any backup storage, including the NAS or Proxmox Backup Server), with an alert when it is older than 7 days (configurable) or when the last backup job failed.
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
 - **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr) and Immich. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders.
 - **History:** CPU, memory and disk usage of the NAS, Proxmox nodes and guests, recorded every minute. 24-hour trend lines on the dashboard; tap a name for charts over 24 hours, 7, 30 or 90 days.
-- **Alerts:** checked every minute, kept for 90 days. CPU or memory above 90 % for 5 minutes, volumes above 85 % (critical at 95 %), disks not healthy, services or machines not answering. Open problems show at the top of the dashboard; the bell counts current problems (it drops as soon as one is fixed), and the Alerts page lists when each problem started, how long it lasted and its peak.
+- **Alerts:** checked every minute, kept for 90 days. CPU or memory above 90 % for 5 minutes, volumes above 85 % (critical at 95 %), disks not healthy, services or machines not answering, backups overdue or failed. Open problems show at the top of the dashboard; the bell counts current problems (it drops as soon as one is fixed), and the Alerts page lists when each problem started, how long it lasted and its peak.
+- **Phone notifications:** alerts as push notifications through [ntfy](https://ntfy.sh) (public server or your own, see [Own ntfy server](#own-ntfy-server-optional)) when a problem starts, becomes critical or is resolved. Optional, critical-only if you like, with a test button.
 - **Settings page:** add and change services in the browser; no file editing or restart. Proxmox can be connected with an admin login: SafeHub creates its own limited user and token.
+- **Check setup:** Settings → Check setup asks every configured system directly and lists what SafeHub sees (versions, token rights, guest addresses, where each service was placed, backups), with a copyable report that never contains keys.
 - **Update notice:** a badge in the header when GitHub has a newer version.
 - **Material Design 3, built for phones:** large touch targets, light and dark mode, installable as an app (Add to Home screen).
 - **Fails soft:** an unconfigured or unreachable service shows its own error; the rest of the dashboard keeps working.
-- **Single admin login**, SQLite storage, no telemetry. The only outgoing request of its own is the update check to GitHub, which can be turned off.
+- **Single admin login**, SQLite storage, no telemetry. Its only outgoing requests of its own are the weekly update check to GitHub (can be turned off) and notifications to the ntfy server you choose.
 
 Built with Next.js, better-auth, Drizzle (SQLite) and Tailwind CSS.
 
@@ -79,11 +82,14 @@ If the login secret changes, values saved on the Settings page can no longer be 
 | HTTPS address (optional) | Your reverse proxy, e.g. Caddy | `BETTER_AUTH_URL=https://safehub.example.lan` | Only when SafeHub is served over HTTPS: enables Secure cookies. Leave unset for plain `http://<IP>:3000`. |
 | Proxmox API token | Settings → Proxmox → **Connect with password** (creates user `safehub@pve` and its token; the password is not stored), or Proxmox UI: Datacenter → Permissions → API Tokens | `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET` | Connect needs an admin account without two-factor login. |
 | Proxmox / Synology certificates | Automatic: pinned on first connection | Optional: `*_CA_CERT_PATH=./certs/<ca>.pem` to verify against a CA instead | A changed certificate shows an "Accept new certificate" button on the card |
+| Proxmox backup age limit (optional) | | `PROXMOX_BACKUP_MAX_AGE_DAYS` (default 7) | Backups are read with the same token (PVEAuditor). Guests never backed up are not warned about. |
 | Synology user + password | DSM: Control Panel → User. Dedicated user, in `administrators`, 2FA off, all apps denied | `SYNOLOGY_URL`, `SYNOLOGY_USERNAME`, `SYNOLOGY_PASSWORD` | DSM 6 and 7 |
 | Sonarr / Radarr / Prowlarr / Bazarr API keys | Automatic (see above), or each app: Settings → General → API Key | `<APP>_URL`, `<APP>_API_KEY` | |
 | Jellyfin API key | Jellyfin: Dashboard → API Keys → + | `JELLYFIN_URL`, `JELLYFIN_API_KEY` | |
 | Seerr API key | Automatic (see above), or Seerr: Settings → General → API Key | `SEERR_URL`, `SEERR_API_KEY` | |
 | Immich API key | Immich (as admin): Account Settings → API Keys | `IMMICH_URL`, `IMMICH_API_KEY` | |
+| Docker containers (optional) | Uncomment `/var/run/docker.sock:/var/run/docker.sock:ro` under `volumes:` in `compose.yaml` | Nothing to set (`DOCKER_SOCKET` only for another path, e.g. rootless Docker) | Containers of the machine SafeHub runs on show under its Proxmox guest (or in a Docker card without Proxmox), with start, stop and restart. Matched by host name = guest name, or by Docker networks (VMs need the QEMU guest agent). Access to the socket equals root on that machine. |
+| Phone notifications (optional) | ntfy app: subscribe to a topic of your choice | `NTFY_TOPIC`, optional `NTFY_URL` (default `https://ntfy.sh`), `NTFY_TOKEN`, `NTFY_CRITICAL_ONLY` | Use a long random topic: on ntfy.sh anyone who knows it can read the messages. Or run your own server (below). Settings has a test button. |
 
 **Keys in `compose.yaml` or `.env`?** Both work. If `compose.yaml` holds keys, treat it like a secret file: `chmod 600 compose.yaml`, and never commit or share it. Write a literal `$` in a value as `$$`, because Compose reads `$` as a variable. A separate `.env` keeps keys out of a file you may want to share or put in git.
 
@@ -111,6 +117,25 @@ sqlite3 data/safehub.db "DELETE FROM user;"
 
 **Backup:** the `data` folder holds the database (account, settings, pinned certificates, history and alerts) and the login secret. History takes a few tens of MB. Stop the container (`docker compose stop`) before copying it.
 
+### Own ntfy server (optional)
+
+Alerts can go to your own [ntfy](https://docs.ntfy.sh) server instead of ntfy.sh, so nothing leaves your network. This is for the Android app: it keeps its own connection to the server. (On iPhone, instant notifications from a self-hosted server need a relay through ntfy.sh.)
+
+1. In `compose.yaml`, uncomment the `ntfy` service and set `NTFY_BASE_URL` to this machine's address and port, e.g. `http://192.168.1.20:8080`. Start it: `docker compose up -d`.
+2. Create a user for SafeHub that may only send, and one for your phone that may only read (each asks for a password):
+   ```bash
+   docker compose exec ntfy ntfy user add safehub
+   docker compose exec ntfy ntfy access safehub safehub write-only
+   docker compose exec ntfy ntfy token add safehub     # prints tk_...
+   docker compose exec ntfy ntfy user add phone
+   docker compose exec ntfy ntfy access phone safehub read-only
+   ```
+   With login required for everything (`deny-all`), the topic name `safehub` does not need to be secret.
+3. In SafeHub (Settings → Notifications or `compose.yaml`): topic `safehub`, server `http://ntfy` (the container name; both run in the same Compose project), access token the `tk_...` value. Press **Send test**.
+4. On the phone, in the ntfy app: Settings → Manage users → add `http://192.168.1.20:8080` with the `phone` user, then + → topic `safehub`, "Use another server", same address. Allow the app to ignore battery optimisation so it stays connected.
+
+Away from home the phone reaches the server only through your VPN (Tailscale/WireGuard). Messages are kept for 24 hours and arrive when the phone connects again. Check setup (Settings) shows whether SafeHub reaches the server. The `ntfy` folder holds its users and tokens; keep it private.
+
 ### Add to an existing Docker Compose stack
 
 If you already run a Compose stack (for example Sonarr, Radarr, Prowlarr, Jellyseerr), add SafeHub as one more service. It then shares the stack's network and reaches the other containers by name, with no extra published ports. Its files stay in a `safehub/` folder next to your `compose.yaml`; Docker creates it on the first start.
@@ -137,6 +162,8 @@ Add to your `compose.yaml` under `services:` (the full list of settings is in th
     volumes:
       - ./safehub/data:/app/data
       - ./safehub/certs:/app/certs:ro
+      # Optional: containers with start/stop/restart (equals root on this machine)
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
 ```
 

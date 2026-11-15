@@ -67,6 +67,34 @@ jobs:
             type=raw,value=latest
             type=sha,format=short
 
+      # Run the real image before publishing it: entrypoint, privilege drop,
+      # Docker socket group, migrations and the health route.
+      - name: Build image for testing
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: safehub:ci
+          cache-from: type=gha
+
+      - name: Test image
+        run: |
+          mkdir -p ci-data
+          docker run -d --name safehub-ci -p 3000:3000 -v "$PWD/ci-data:/app/data" \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro safehub:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/health; then break; fi
+            if [ "$attempt" = 30 ]; then docker logs safehub-ci; exit 1; fi
+            sleep 2
+          done
+          # Runs unprivileged, with the socket's group for Docker access.
+          status="$(docker exec safehub-ci cat /proc/1/status)"
+          echo "$status" | grep -E "^(Uid|Groups):"
+          echo "$status" | grep -qE "^Uid:\s+1000\s"
+          echo "$status" | grep -qE "^Groups:.*\b$(stat -c %g /var/run/docker.sock)\b"
+          test -f ci-data/safehub.db
+          docker rm -f safehub-ci
+
       - uses: docker/build-push-action@v6
         with:
           context: .

@@ -19,6 +19,13 @@ const env = {
   DATABASE_PATH: join(mkdtempSync(join(tmpdir(), "safehub-smoke-")), "safehub.db"),
   BETTER_AUTH_SECRET: "smoke-test-secret-smoke-test-secret-01",
   DISABLE_UPDATE_CHECK: "true",
+  // Never the machine's real Docker (CI runners have one).
+  DOCKER_SOCKET: "/nonexistent/docker.sock",
+  // An unreachable Synology: its seeded volume alert must stay open (alerts
+  // of a source removed from the settings close on the first check).
+  SYNOLOGY_URL: "http://127.0.0.1:9",
+  SYNOLOGY_USERNAME: "smoke",
+  SYNOLOGY_PASSWORD: "smoke",
 };
 Object.assign(process.env, env);
 process.chdir(root);
@@ -77,6 +84,7 @@ try {
     { path: "/", status: 200, loggedIn: true, contains: "problem" },
     { path: "/settings", status: 200, loggedIn: true, contains: "Settings" },
     { path: "/alerts", status: 200, loggedIn: true, contains: "Sonarr: unreachable" },
+    { path: "/diagnostics", status: 200, loggedIn: true, contains: "Check setup" },
     { path: "/history/synology", status: 200, loggedIn: true },
     { path: "/history/node/pve", status: 200, loggedIn: true, contains: "Proxmox node pve" },
     { path: "/history/guest/pve/101", status: 200, loggedIn: true },

@@ -4,8 +4,9 @@ import { z } from "zod";
 import { getFlag } from "@/lib/settings/store";
 
 // Update notice: compares when this copy was built (set in next.config.ts)
-// with the latest commit on GitHub's main branch. This is SafeHub's only
-// outgoing request of its own; DISABLE_UPDATE_CHECK turns it off.
+// with the latest commit on GitHub's main branch. Apart from ntfy
+// notifications the owner sets up, this is SafeHub's only outgoing request
+// of its own; DISABLE_UPDATE_CHECK turns it off.
 
 export const REPOSITORY = "lamonfly/SafeHub";
 const CHECK_EVERY_MS = 7 * 24 * 60 * 60_000; // once a week

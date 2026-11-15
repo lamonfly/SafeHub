@@ -45,6 +45,8 @@ const envSchema = z.object({
   PROXMOX_TOKEN_SECRET: optionalSecret,
   PROXMOX_CA_CERT_PATH: optionalReadableFile,
   PROXMOX_ALLOW_SELF_SIGNED: optionalFlag,
+  // Alert when a guest's newest backup is older than this (default 7).
+  PROXMOX_BACKUP_MAX_AGE_DAYS: z.string().regex(/^[1-9]\d{0,2}$/,"Whole number of days (1-999).").optional(),
 
   // Synology DSM
   SYNOLOGY_URL: optionalUrl,
@@ -70,6 +72,15 @@ const envSchema = z.object({
   SEERR_API_KEY: optionalSecret,
   IMMICH_URL: optionalUrl,
   IMMICH_API_KEY: optionalSecret,
+
+  // Docker socket mounted into the container; Docker is hidden without it.
+  DOCKER_SOCKET: z.string().min(1).default("/var/run/docker.sock"),
+
+  // Push notifications via ntfy (opt-in: nothing is sent without a topic).
+  NTFY_URL: optionalUrl,
+  NTFY_TOPIC: optionalSecret,
+  NTFY_TOKEN: optionalSecret,
+  NTFY_CRITICAL_ONLY: optionalFlag,
 
   // Turns off the update check against GitHub.
   DISABLE_UPDATE_CHECK: optionalFlag,

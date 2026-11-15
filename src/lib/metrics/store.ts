@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { alert, metricHourly, metricSample } from "@/db/schema";
 
@@ -28,11 +28,14 @@ export function saveSamples(ts: number, samples: { series: string; value: number
 }
 
 // Newest first.
-export function lastValues(series: string, count: number): number[] {
+// Only samples from the last `count` minutes before `now` count: older ones
+// (taken before a restart, or before a service was removed and added again)
+// say nothing about whether a condition is sustained right now.
+export function lastValues(series: string, count: number, now: number): number[] {
   return db
     .select({ value: metricSample.value })
     .from(metricSample)
-    .where(eq(metricSample.series, series))
+    .where(and(eq(metricSample.series, series), gte(metricSample.ts, minuteStart(now) - count * MINUTE)))
     .orderBy(desc(metricSample.ts))
     .limit(count)
     .all()

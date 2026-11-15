@@ -11,7 +11,8 @@ export async function UpdateBadge() {
       target="_blank"
       rel="noreferrer"
       title="Update with: docker compose pull && docker compose up -d"
-      className="inline-flex h-8 shrink-0 items-center rounded-lg bg-tertiary-container px-3 text-xs font-medium text-on-tertiary-container hover:shadow-elevation-1"
+      // after: extends the 32 px chip to a 48 px tap area.
+      className="relative inline-flex h-8 shrink-0 items-center rounded-lg after:absolute after:inset-x-0 after:-inset-y-2 after:content-[''] bg-tertiary-container px-3 text-xs font-medium text-on-tertiary-container hover:shadow-elevation-1"
     >
       Update
       <span className="hidden sm:inline">&nbsp;available</span>

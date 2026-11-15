@@ -108,16 +108,20 @@ export const auth = betterAuth({
             message: `Too many failed sign-ins. Try again in ${Math.ceil(waitMs / 60_000)} min.`,
           });
         }
+        // Count the attempt as failed before the (async) password check, in
+        // the same synchronous step as the limit check: parallel attempts
+        // then cannot all pass the check before any failure is recorded.
+        // A successful sign-in takes it back below.
+        accountLimiter.recordFailure(signInKey(ctx.body));
+        globalLimiter.recordFailure("global");
       }
     }),
     after: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== SIGN_IN_PATH) return;
-      const key = signInKey(ctx.body);
-      if (isAPIError(ctx.context.returned)) {
-        accountLimiter.recordFailure(key);
-        globalLimiter.recordFailure("global");
-      } else {
-        accountLimiter.reset(key);
+      // The failure was already counted in the before hook.
+      if (!isAPIError(ctx.context.returned)) {
+        accountLimiter.reset(signInKey(ctx.body));
+        globalLimiter.refund("global");
       }
     }),
   },

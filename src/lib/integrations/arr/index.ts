@@ -4,6 +4,7 @@ import { perSettings } from "@/lib/settings/memo";
 import { getSetting } from "@/lib/settings/store";
 import { resolveService, type DiscoverableApp } from "../discovery";
 import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
+import { serviceTlsAgent } from "../tls";
 
 // Sonarr, Radarr (API v3) and Prowlarr (API v1) share the same base API.
 
@@ -21,7 +22,7 @@ function arrClient(
 ): HttpClient | null {
   const service = resolveService(app, getSetting(`${prefix}_URL`), getSetting(`${prefix}_API_KEY`));
   return service
-    ? createHttpClient({ name, baseUrl: service.url, headers: { "X-Api-Key": service.apiKey } })
+    ? createHttpClient({ name, baseUrl: service.url, headers: { "X-Api-Key": service.apiKey }, dispatcher: serviceTlsAgent(app) })
     : null;
 }
 

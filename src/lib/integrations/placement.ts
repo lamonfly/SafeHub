@@ -1,6 +1,7 @@
 import "server-only";
 import { lookup } from "node:dns/promises";
 import { isIPv4 } from "node:net";
+import type { DockerHost } from "./docker";
 import type { GuestWithAddresses } from "./proxmox";
 import type { ServiceStatus } from "./services";
 
@@ -67,4 +68,28 @@ export async function placeServices(
     }),
   );
   return placed;
+}
+
+// Finds the guest a Docker host runs in, trying in order:
+// 1. Docker's host name equal to the guest's name (LXC host names usually are);
+// 2. the one guest whose Docker interfaces carry all of the host's network
+//    gateways (the set of ranges tells hosts apart better than one range);
+// 3. the guest whose LAN address SafeHub was opened at (SafeHub runs on this
+//    Docker host, so that address is the host's).
+export function placeDockerHost(
+  guests: GuestWithAddresses[],
+  host: Pick<DockerHost, "name" | "gateways">,
+  openedAt?: string,
+): string | undefined {
+  const byName = guests.filter((guest) => guest.name?.toLowerCase() === host.name.toLowerCase());
+  if (byName.length === 1) return guestKey(byName[0]);
+  if (host.gateways.length > 0) {
+    const byGateways = guests.filter((guest) => {
+      const own = new Set(guest.dockerNetworks.map((cidr) => cidr.split("/")[0]));
+      return host.gateways.every((gateway) => own.has(gateway));
+    });
+    if (byGateways.length === 1) return guestKey(byGateways[0]);
+  }
+  const byAddress = openedAt ? guests.find((guest) => guest.addresses.includes(openedAt)) : undefined;
+  return byAddress ? guestKey(byAddress) : undefined;
 }

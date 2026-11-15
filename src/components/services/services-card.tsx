@@ -1,3 +1,4 @@
+import { CertificateChanged } from "@/components/certificate/certificate-changed";
 import { Card, Tile } from "@/components/ui/card";
 import { StatusDot } from "@/components/ui/status-dot";
 import { getServiceStatuses, type ServiceStatus } from "@/lib/integrations/services";
@@ -35,7 +36,12 @@ function ServiceTile({ service }: { service: ServiceStatus }) {
         )}
       </div>
 
-      {result.status === "error" && <p className="text-sm break-words text-error">{result.message}</p>}
+      {result.status === "error" &&
+        (result.certificateChanged ? (
+          <CertificateChanged message={result.message} {...result.certificateChanged} />
+        ) : (
+          <p className="text-sm break-words text-error">{result.message}</p>
+        ))}
 
       {result.status === "ok" && (
         <>

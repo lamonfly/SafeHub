@@ -7,6 +7,8 @@ import { createHttpClient, type HttpClient } from "../http";
 import { errorResult, type IntegrationResult } from "../result";
 import { createTlsAgent } from "../tls";
 import { getGuestNetworks, type GuestNetworks } from "./addresses";
+import { fetchBackupInfo, type BackupInfo } from "./backups";
+import { cacheFor } from "../cache";
 import {
   guestSchema,
   responseSchema,
@@ -25,7 +27,7 @@ export function proxmoxTlsAgent() {
   });
 }
 
-const getClient = perSettings((): HttpClient | null => {
+function buildClient(timeoutMs?: number): HttpClient | null {
   const url = getSetting("PROXMOX_URL");
   const tokenId = getSetting("PROXMOX_TOKEN_ID");
   const tokenSecret = getSetting("PROXMOX_TOKEN_SECRET");
@@ -35,12 +37,60 @@ const getClient = perSettings((): HttpClient | null => {
     baseUrl: new URL("/api2/json/", url).href,
     headers: { Authorization: `PVEAPIToken=${tokenId}=${tokenSecret}` },
     dispatcher: proxmoxTlsAgent(),
+    timeoutMs,
   });
-});
+}
+
+const getClient = perSettings(() => buildClient());
+// Listing a large backup storage (PBS datastore) can take well over 5 s.
+const getBackupClient = perSettings(() => buildClient(30_000));
 
 // The dashboard hides the Proxmox card when this is false.
 export function isProxmoxConfigured(): boolean {
   return getClient() !== null;
+}
+
+// For the setup check (lib/diagnostics), which asks Proxmox directly.
+export function getProxmoxClient(): HttpClient | null {
+  return getClient();
+}
+
+// Backups are guarded by the token's rights and slow to list, so they are
+// fetched at most every 10 minutes, a failure is not retried for 3 minutes,
+// and the overview never waits long for them: it shows the last known
+// result (or none) while a slow listing finishes in the background.
+const BACKUP_WAIT_MS = 1_500;
+const BACKUP_RETRY_MS = 3 * 60_000;
+const getBackups = perSettings(() => {
+  const cached = cacheFor(10 * 60_000, (nodes: string[]) => {
+    const client = getBackupClient();
+    if (!client) return Promise.reject(new Error("Proxmox is not configured"));
+    return fetchBackupInfo(client, nodes);
+  });
+  let failedAt = 0;
+  let last: BackupInfo | null = null;
+  return async (nodes: string[]): Promise<BackupInfo | null> => {
+    if (Date.now() - failedAt < BACKUP_RETRY_MS) return last;
+    const pending = cached(nodes).then(
+      (info) => (last = info),
+      () => {
+        failedAt = Date.now();
+        return last;
+      },
+    );
+    let timer: NodeJS.Timeout | undefined;
+    const waited = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), BACKUP_WAIT_MS);
+    });
+    const result = await Promise.race([pending, waited]);
+    clearTimeout(timer);
+    return result ?? last;
+  };
+});
+
+export function backupMaxAgeDays(): number {
+  const days = Number(getSetting("PROXMOX_BACKUP_MAX_AGE_DAYS") ?? 7);
+  return Number.isFinite(days) && days > 0 ? days : 7;
 }
 
 // Proxmox wraps every response in { data }. Errors carry the reason in the
@@ -54,11 +104,18 @@ async function request<T extends z.ZodType>(
   return schema.parse((await client[method](path, responseSchema)).data);
 }
 
-export type GuestWithAddresses = ProxmoxGuest & GuestNetworks;
+export type GuestWithAddresses = ProxmoxGuest &
+  GuestNetworks & {
+    // Age of the newest backup: null = never backed up, undefined = unknown
+    // (no backup data, e.g. the token cannot read the storages).
+    backupAgeMs?: number | null;
+    backupOverdue?: boolean;
+  };
 
 export type ProxmoxOverview = {
   nodes: ProxmoxNode[];
   guests: GuestWithAddresses[];
+  backups: BackupInfo | null;
 };
 
 export async function getProxmoxOverview(): Promise<IntegrationResult<ProxmoxOverview>> {
@@ -70,12 +127,24 @@ export async function getProxmoxOverview(): Promise<IntegrationResult<ProxmoxOve
       request(client, "get", "cluster/resources?type=vm", z.array(guestSchema)),
     ]);
     const visible = guests.filter((guest) => !guest.template).sort((a, b) => a.vmid - b.vmid);
-    const withAddresses = await Promise.all(
-      visible.map(async (guest) => ({ ...guest, ...(await getGuestNetworks(client, guest)) })),
-    );
+    const [withAddresses, backups] = await Promise.all([
+      Promise.all(visible.map(async (guest) => ({ ...guest, ...(await getGuestNetworks(client, guest)) }))),
+      getBackups()(nodes.filter((node) => node.status === "online").map((node) => node.node)),
+    ]);
+    const now = Date.now();
+    const maxAgeMs = backupMaxAgeDays() * 86_400_000;
+    const withBackups = withAddresses.map((guest) => {
+      if (!backups) return guest;
+      const last = backups.lastBackup[guest.vmid];
+      const backupAgeMs = last === undefined ? null : now - last;
+      // With a storage missing, a newer backup may sit on it: never call a
+      // guest overdue on partial data.
+      const complete = backups.failedStorages.length === 0;
+      return { ...guest, backupAgeMs, backupOverdue: complete && backupAgeMs !== null && backupAgeMs > maxAgeMs };
+    });
     return {
       status: "ok",
-      data: { nodes: nodes.sort((a, b) => a.node.localeCompare(b.node)), guests: withAddresses },
+      data: { nodes: nodes.sort((a, b) => a.node.localeCompare(b.node)), guests: withBackups, backups },
     };
   } catch (error) {
     return errorResult(error);

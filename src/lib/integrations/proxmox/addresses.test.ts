@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { HttpClient } from "../http";
 import { getGuestNetworks } from "./addresses";
 import type { ProxmoxGuest } from "./schemas";
@@ -45,5 +45,23 @@ describe("getGuestNetworks", () => {
     expect(await getGuestNetworks(failing, running(110, "qemu"))).toEqual({ addresses: [], dockerNetworks: [] });
     const stopped = { ...running(111, "lxc"), status: "stopped" } as ProxmoxGuest;
     expect(await getGuestNetworks(fakeClient([]), stopped)).toEqual({ addresses: [], dockerNetworks: [] });
+  });
+
+  it("keeps the last known addresses after a failure and retries after 30 s", async () => {
+    let now = 1_000_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let fail = false;
+    const client = {
+      get: async () => (fail ? Promise.reject(new Error("timeout")) : { data: [{ name: "eth0", inet: "192.168.0.120/24" }] }),
+    } as unknown as HttpClient;
+    const guest = running(120, "lxc");
+    expect((await getGuestNetworks(client, guest)).addresses).toEqual(["192.168.0.120"]);
+    fail = true;
+    now += 5 * 60_000 + 1; // cache expired, lookup fails
+    expect((await getGuestNetworks(client, guest)).addresses).toEqual(["192.168.0.120"]);
+    fail = false;
+    now += 30_001;
+    expect((await getGuestNetworks(client, guest)).addresses).toEqual(["192.168.0.120"]);
+    clock.mockRestore();
   });
 });
