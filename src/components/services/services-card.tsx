@@ -1,9 +1,13 @@
 import { CertificateChanged } from "@/components/certificate/certificate-changed";
 import { Card, Tile } from "@/components/ui/card";
 import { StatusDot } from "@/components/ui/status-dot";
+import type { IntegrationResult } from "@/lib/integrations/result";
+import { getSeerrPendingRequests, type SeerrRequest } from "@/lib/integrations/seerr";
 import { getServiceStatuses, type ServiceStatus } from "@/lib/integrations/services";
+import { SeerrRequests } from "./seerr-requests";
+import { ServiceActions } from "./service-actions";
 
-function ServiceTile({ service }: { service: ServiceStatus }) {
+function ServiceTile({ service, pending }: { service: ServiceStatus; pending?: IntegrationResult<SeerrRequest[]> }) {
   const { result } = service;
   const hasIssues = result.status === "ok" && result.data.issues.length > 0;
   const [tone, label] =
@@ -64,7 +68,11 @@ function ServiceTile({ service }: { service: ServiceStatus }) {
               ))}
             </ul>
           )}
+          {pending && <SeerrRequests result={pending} />}
         </>
+      )}
+      {service.actions.length > 0 && (
+        <ServiceActions serviceKey={service.key} serviceName={service.name} actions={service.actions} />
       )}
     </Tile>
   );
@@ -73,14 +81,18 @@ function ServiceTile({ service }: { service: ServiceStatus }) {
 export async function ServicesCard() {
   // Only configured services are returned; the dashboard skips this card
   // when there are none.
-  const statuses = await getServiceStatuses();
+  // In parallel: the request list must not wait for every tile's status.
+  const [statuses, seerrPending] = await Promise.all([getServiceStatuses(), getSeerrPendingRequests()]);
   if (statuses.length === 0) return null;
+  // A down Seerr already shows its error; skip the list's own error then.
+  const seerrUp = statuses.some((service) => service.key === "seerr" && service.result.status === "ok");
+  const pending = seerrUp ? seerrPending : undefined;
 
   return (
     <Card title="Services">
       <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3">
         {statuses.map((service) => (
-          <ServiceTile key={service.key} service={service} />
+          <ServiceTile key={service.key} service={service} pending={service.key === "seerr" ? pending : undefined} />
         ))}
       </div>
     </Card>

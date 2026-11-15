@@ -1,4 +1,5 @@
 import "server-only";
+import { getDockerHost, isDockerConfigured, type DockerContainer } from "@/lib/integrations/docker";
 import { backupMaxAgeDays, getProxmoxOverview, isProxmoxConfigured } from "@/lib/integrations/proxmox";
 import { getServiceStatuses, hasConfiguredServices } from "@/lib/integrations/services";
 import { getSynologyOverview, isSynologyConfigured } from "@/lib/integrations/synology";
@@ -7,12 +8,13 @@ import { series } from "./series";
 // One sample of everything that is configured, using the same adapters as
 // the dashboard (and their caches).
 
-export type Source = "synology" | "proxmox";
+export type Source = "synology" | "proxmox" | "docker";
 
 export type Reading = {
   series: string;
   value: number;
-  kind: "cpu" | "ram" | "volume" | "up";
+  // "docker": stored for history and the container rules, no generic rule.
+  kind: "cpu" | "ram" | "volume" | "up" | "docker";
   label: string;
   source?: Source;
   // For "up": minutes down before alerting.
@@ -26,6 +28,22 @@ export type DiskReading = { key: string; label: string; status: string };
 export type BackupReading = { key: string; label: string; ageDays: number; maxAgeDays: number };
 export type BackupJobReading = { key: string; node: string; ok: boolean; status: string };
 
+// One Docker container this round. crashed: restarting, dead, killed for
+// running out of memory, or exited with an error code. Exit codes from
+// being stopped (0, SIGINT 130, SIGKILL 137, SIGTERM 143) count as stopped
+// on purpose.
+export type ContainerReading = {
+  name: string;
+  state: string;
+  status: string;
+  exitCode?: number;
+  oomKilled?: boolean;
+  running: boolean;
+  crashed: boolean;
+};
+
+const CLEAN_EXIT_CODES = new Set([0, 130, 137, 143]);
+
 export type Snapshot = {
   readings: Reading[];
   disks: DiskReading[];
@@ -34,7 +52,31 @@ export type Snapshot = {
   configured?: Set<Source>;
   backups?: BackupReading[];
   backupJobs?: BackupJobReading[];
+  containers?: ContainerReading[];
 };
+
+// Readings and rule input for the containers of one Docker host.
+export function containerReadings(list: DockerContainer[]): { readings: Reading[]; containers: ContainerReading[] } {
+  const readings: Reading[] = [];
+  const containers = list.map((container) => {
+    const running = container.state === "running";
+    const crashed =
+      container.state === "restarting" ||
+      container.state === "dead" ||
+      (container.state === "exited" &&
+        (container.oomKilled === true || (container.exitCode !== undefined && !CLEAN_EXIT_CODES.has(container.exitCode))));
+    if (running || crashed) {
+      readings.push({ series: series.dockerUp(container.name), value: running ? 1 : 0, kind: "docker", label: container.name });
+    }
+    if (running) {
+      const healthy = container.status.includes("(unhealthy)") ? 0 : 1;
+      readings.push({ series: series.dockerHealth(container.name), value: healthy, kind: "docker", label: container.name });
+    }
+    const { name, state, status, exitCode, oomKilled } = container;
+    return { name, state, status, exitCode, oomKilled, running, crashed };
+  });
+  return { readings, containers };
+}
 
 const percent = (used: number, total: number) => (total > 0 ? (used / total) * 100 : 0);
 
@@ -103,6 +145,18 @@ export async function collect(): Promise<Snapshot> {
         add({ series: series.guestCpu(guest.node, guest.vmid), value: guest.cpu * 100, kind: "cpu", label, source: "proxmox" });
         add({ series: series.guestRam(guest.node, guest.vmid), value: percent(guest.mem, guest.maxmem), kind: "ram", label, source: "proxmox" });
       }
+    })(),
+
+    (async () => {
+      if (!isDockerConfigured()) return;
+      snapshot.configured?.add("docker");
+      const result = await getDockerHost();
+      add({ series: series.dockerHostUp, value: result.status === "ok" ? 1 : 0, kind: "up", label: "Docker", graceMinutes: 3 });
+      if (result.status !== "ok") return;
+      snapshot.reachable.add("docker");
+      const docker = containerReadings(result.data.containers);
+      docker.readings.forEach(add);
+      snapshot.containers = docker.containers;
     })(),
 
     (async () => {

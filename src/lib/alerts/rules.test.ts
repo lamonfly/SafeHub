@@ -5,12 +5,14 @@ import type { Reading, Snapshot, Source } from "@/lib/metrics/collect";
 let rules: typeof import("./rules");
 let store: typeof import("./store");
 let metrics: typeof import("@/lib/metrics/store");
+let collect: typeof import("@/lib/metrics/collect");
 
 beforeAll(async () => {
   await migratedDb();
   rules = await import("./rules");
   store = await import("./store");
   metrics = await import("@/lib/metrics/store");
+  collect = await import("@/lib/metrics/collect");
 });
 
 const MINUTE = 60_000;
@@ -143,6 +145,70 @@ describe("backup alerts", () => {
     expect(round({ backups: [], backupJobs: job(false, "job errors") })).toEqual(["opened warning Backup job failed on pve"]);
     expect(round({})).toEqual([]);
     expect(round({ backups: [], backupJobs: job(true, "OK") })).toEqual(["resolved warning Backup job failed on pve"]);
+  });
+});
+
+describe("Docker container alerts", () => {
+  type Container = import("@/lib/integrations/docker").DockerContainer;
+  const container = (state: string, status: string, exitCode?: number): Container => ({
+    id: "a".repeat(64), name: "sonarr", image: "sonarr", state, status, exitCode, ports: [], self: false,
+  });
+  // One sampler round with only this container.
+  function dockerStep(item: Container) {
+    const { readings, containers } = collect.containerReadings([item]);
+    metrics.saveSamples(clock, readings.map(({ series, value }) => ({ series, value })));
+    const events = rules.evaluateAlerts(
+      { readings, disks: [], containers, reachable: new Set<Source>(["docker"]), configured: new Set<Source>(["docker"]) },
+      new Date(clock),
+    );
+    clock += MINUTE;
+    return events.map((item) => `${item.type} ${item.severity} ${item.title}`);
+  }
+  const running = container("running", "Up 2 hours (healthy)");
+  const crashed = container("exited", "Exited (1) 1 minute ago", 1);
+
+  it("open when a container that ran crashes, close when it runs again", () => {
+    dockerStep(running);
+    expect(dockerStep(crashed)).toEqual([]);
+    expect(dockerStep(crashed)).toEqual(["opened critical sonarr: stopped (exit code 1)"]);
+    dockerStep(running);
+    expect(dockerStep(running)).toEqual(["resolved critical sonarr: stopped (exit code 1)"]);
+  });
+
+  it("name a crash loop, and close when stopped on purpose", () => {
+    dockerStep(running);
+    dockerStep(container("restarting", "Restarting (1) 5 seconds ago"));
+    expect(dockerStep(container("restarting", "Restarting (1) 5 seconds ago"))).toEqual(["opened critical sonarr: keeps restarting"]);
+    expect(dockerStep(container("exited", "Exited (0) 1 second ago", 0))).toEqual(["resolved critical sonarr: keeps restarting"]);
+  });
+
+  it("warn about an unhealthy container after 3 minutes", () => {
+    const unhealthy = container("running", "Up 1 hour (unhealthy)");
+    dockerStep(unhealthy);
+    dockerStep(unhealthy);
+    expect(dockerStep(unhealthy)).toEqual(["opened warning sonarr: unhealthy"]);
+    dockerStep(running);
+    expect(dockerStep(running)).toEqual(["resolved warning sonarr: unhealthy"]);
+  });
+
+  it("tell an out-of-memory kill from a stop with the same exit code", () => {
+    const stopped = container("exited", "Exited (137) 1 minute ago", 137);
+    dockerStep(running);
+    dockerStep(stopped);
+    expect(dockerStep(stopped)).toEqual([]); // docker stop after the timeout
+    dockerStep(running);
+    const oom = { ...stopped, oomKilled: true };
+    dockerStep(oom);
+    expect(dockerStep(oom)).toEqual(["opened critical sonarr: killed (out of memory)"]);
+    dockerStep(running);
+    dockerStep(running);
+  });
+
+  it("ignore a container that was never seen running", () => {
+    const other = { ...crashed, name: "old-thing" };
+    dockerStep(other);
+    dockerStep(other);
+    expect(dockerStep(other)).toEqual([]);
   });
 });
 

@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { perSettings } from "@/lib/settings/memo";
 import { getSetting } from "@/lib/settings/store";
-import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
+import { createHttpClient, type HttpClient, type ServiceAction, type ServiceSummary } from "../http";
 import { serviceTlsAgent } from "../tls";
 
 const infoSchema = z.object({ Version: z.string() });
@@ -51,3 +51,14 @@ export async function jellyfinSummary(client: HttpClient): Promise<ServiceSummar
     issues: [],
   };
 }
+
+export const jellyfinActions: ServiceAction[] = [
+  {
+    id: "scan-library",
+    label: "Scan libraries",
+    run: async (client) => {
+      await client.post("Library/Refresh", z.unknown());
+      return "Scan started.";
+    },
+  },
+];

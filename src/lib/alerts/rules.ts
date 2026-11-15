@@ -3,7 +3,8 @@ import { eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { alert, type Alert } from "@/db/schema";
 import type { Snapshot, Source } from "@/lib/metrics/collect";
-import { lastValues } from "@/lib/metrics/store";
+import { series } from "@/lib/metrics/series";
+import { hasValue, lastValues } from "@/lib/metrics/store";
 
 // Built-in alert rules, checked after every sample. Each rule opens an alert
 // when its condition holds and closes it once the value is clearly back to
@@ -178,6 +179,61 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
     );
   }
 
+  // Docker containers. Only containers SafeHub has seen running (in the kept
+  // history) alert, so long-dead leftovers do not; a container stopped on
+  // purpose closes its alert.
+  const t = now.getTime();
+  for (const container of snapshot.containers ?? []) {
+    const upSeries = series.dockerUp(container.name);
+    const downKey = `docker:${container.name}:down`;
+    if (container.crashed) {
+      const recent = lastValues(upSeries, 2, t);
+      // hasValue scans the series: only ask before opening, not while open.
+      const down =
+        recent.length === 2 && recent.every((sample) => sample === 0) && (open.has(downKey) || hasValue(upSeries, 1));
+      apply(
+        downKey,
+        down
+          ? {
+              state: "open",
+              severity: "critical",
+              title:
+                container.state === "restarting"
+                  ? `${container.name}: keeps restarting`
+                  : container.oomKilled
+                    ? `${container.name}: killed (out of memory)`
+                    : container.exitCode !== undefined
+                    ? `${container.name}: stopped (exit code ${container.exitCode})`
+                    : `${container.name}: stopped`,
+              message: container.status || container.state,
+              unit: "",
+            }
+          : { state: "keep" },
+      );
+    } else if (container.running) {
+      const recent = lastValues(upSeries, 2, t);
+      apply(downKey, recent.length === 2 && recent.every((sample) => sample === 1) ? { state: "close" } : { state: "keep" });
+    } else {
+      apply(downKey, { state: "close" });
+    }
+
+    const healthSeries = series.dockerHealth(container.name);
+    const healthKey = `docker:${container.name}:unhealthy`;
+    if (container.running) {
+      const recent = lastValues(healthSeries, 3, t);
+      apply(
+        healthKey,
+        recent.length === 3 && recent.every((sample) => sample === 0)
+          ? { state: "open", severity: "warning", title: `${container.name}: unhealthy`, message: container.status, unit: "" }
+          : recent.slice(0, 2).length === 2 && recent.slice(0, 2).every((sample) => sample === 1)
+            ? { state: "close" }
+            : { state: "keep" },
+      );
+    } else {
+      apply(healthKey, { state: "close" });
+    }
+  }
+
   // Alerts whose subject disappeared while its system answered (a guest was
   // stopped, a volume removed) are over. If the system itself is down its
   // "unreachable" alert covers it, so leave the rest open.
@@ -187,7 +243,9 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
       ? "synology"
       : key.startsWith("node:") || key.startsWith("guest:") || key.startsWith("backup:") || key.startsWith("backup-job:")
         ? "proxmox"
-        : undefined;
+        : key.startsWith("docker:")
+          ? "docker"
+          : undefined;
     // Synology / Proxmox removed from the settings: all of its alerts are over.
     if (source && snapshot.configured && !snapshot.configured.has(source)) {
       resolve(existing);

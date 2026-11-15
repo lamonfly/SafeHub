@@ -13,4 +13,9 @@ export const series = {
   guestCpu: (node: string, vmid: number) => `guest:${node}/${vmid}:cpu`,
   guestRam: (node: string, vmid: number) => `guest:${node}/${vmid}:ram`,
   serviceUp: (key: string) => `service:${key}:up`,
+  dockerHostUp: "docker:up",
+  // Docker containers by name: 1 running, 0 crashed or restarting.
+  dockerUp: (name: string) => `docker:${name}:up`,
+  // 1 healthy (or no health check), 0 unhealthy; only while running.
+  dockerHealth: (name: string) => `docker:${name}:health`,
 };

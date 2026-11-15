@@ -42,6 +42,18 @@ export function lastValues(series: string, count: number, now: number): number[]
     .map((row) => row.value);
 }
 
+// Whether the series ever had this value in the kept minute samples (7 days).
+export function hasValue(series: string, value: number): boolean {
+  return (
+    db
+      .select({ ts: metricSample.ts })
+      .from(metricSample)
+      .where(and(eq(metricSample.series, series), eq(metricSample.value, value)))
+      .limit(1)
+      .get() !== undefined
+  );
+}
+
 // Rolls minute samples into hourly average/peak for every complete hour since
 // `from`, then deletes data past its retention. Safe to repeat.
 export function rollUpAndPrune(from: number, now: number): void {

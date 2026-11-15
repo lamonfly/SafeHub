@@ -20,7 +20,7 @@ const guest = (vmid: number, addresses: string[], dockerNetworks: string[]) =>
   }) as GuestWithAddresses;
 
 const service = (key: string, host: string) =>
-  ({ key, name: key, host, result: { status: "ok", data: { stats: [], issues: [] } } }) as ServiceStatus;
+  ({ key, name: key, host, result: { status: "ok", data: { stats: [], issues: [] } }, actions: [] }) as ServiceStatus;
 
 const keys = (services: ServiceStatus[] | undefined) => (services ?? []).map((item) => item.key).sort();
 

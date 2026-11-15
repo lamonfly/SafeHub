@@ -4,10 +4,17 @@ import { z } from "zod";
 
 const TIMEOUT_MS = 5_000;
 
+export type RequestOptions = {
+  // Error statuses whose JSON body is still the answer, e.g. 400 from the
+  // *arr apps' "test all" when some tests fail.
+  acceptStatuses?: number[];
+};
+
 export type HttpClient = {
   baseUrl: URL;
   get<T extends z.ZodType>(path: string, schema: T): Promise<z.infer<T>>;
-  post<T extends z.ZodType>(path: string, schema: T): Promise<z.infer<T>>;
+  // body: sent as JSON.
+  post<T extends z.ZodType>(path: string, schema: T, body?: unknown, options?: RequestOptions): Promise<z.infer<T>>;
 };
 
 // JSON client for one service: base URL, auth headers, optional TLS agent,
@@ -23,17 +30,28 @@ export function createHttpClient(options: {
   // Trailing slash so relative paths append instead of replacing the last segment.
   const baseUrl = new URL(options.baseUrl.endsWith("/") ? options.baseUrl : `${options.baseUrl}/`);
 
-  async function request<T extends z.ZodType>(method: string, path: string, schema: T) {
+  async function request<T extends z.ZodType>(
+    method: string,
+    path: string,
+    schema: T,
+    body?: unknown,
+    requestOptions: RequestOptions = {},
+  ) {
     const response = await fetch(new URL(path, baseUrl), {
       method,
-      headers: { Accept: "application/json", ...options.headers },
+      headers: {
+        Accept: "application/json",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...options.headers,
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
       dispatcher: options.dispatcher,
       signal: AbortSignal.timeout(options.timeoutMs ?? TIMEOUT_MS),
     });
     // No body: 204 No Content, or 304 Not Modified (SafeHub never sends
     // conditional requests; Docker uses it for "already in that state").
     if (response.status === 204 || response.status === 304) return schema.parse(undefined) as z.infer<T>;
-    if (!response.ok) {
+    if (!response.ok && !requestOptions.acceptStatuses?.includes(response.status)) {
       // Release the connection now instead of when the body is collected.
       await response.body?.cancel();
       throw new Error(`${options.name} ${response.status} ${response.statusText}`.trim());
@@ -57,9 +75,19 @@ export function createHttpClient(options: {
   return {
     baseUrl,
     get: (path, schema) => request("GET", path, schema),
-    post: (path, schema) => request("POST", path, schema),
+    post: (path, schema, body, requestOptions) => request("POST", path, schema, body, requestOptions),
   };
 }
+
+// A button on a service tile (scan, refresh, search). run() returns a short
+// result text, or nothing when the service only queued the work.
+export type ServiceAction = {
+  id: string;
+  label: string;
+  // Set for heavy actions: shown in a confirmation dialog first.
+  confirm?: string;
+  run: (client: HttpClient) => Promise<string | void>;
+};
 
 // Shared shape for the service tiles on the dashboard.
 export type ServiceSummary = {

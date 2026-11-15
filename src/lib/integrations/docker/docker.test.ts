@@ -33,6 +33,7 @@ beforeAll(async () => {
       return response.end();
     }
     if (request.url === "/info") return json(response, { Name: "docker-vm", ServerVersion: "27.3.1" });
+    if (request.url === `/containers/${"d".repeat(64)}/json`) return json(response, { State: { OOMKilled: true } });
     if (request.url === "/networks") {
       return json(response, [
         { Name: "bridge", IPAM: { Config: [{ Subnet: "172.17.0.0/16", Gateway: "172.17.0.1" }] } },
@@ -41,6 +42,16 @@ beforeAll(async () => {
     }
     if (request.url === "/containers/json?all=1") {
       return json(response, [
+        {
+          // Exit code 137 like "docker stop", but killed for lack of memory.
+          Id: "d".repeat(64),
+          Names: ["/immich-ml"],
+          Image: "immich-machine-learning",
+          State: "exited",
+          Status: "Exited (137) 5 minutes ago",
+          Ports: [],
+          Labels: null,
+        },
         {
           Id: "b".repeat(64),
           Names: ["/watchtower"],
@@ -96,11 +107,24 @@ describe("Docker", () => {
             self: false,
           },
           {
+            id: "d".repeat(64),
+            name: "immich-ml",
+            image: "immich-machine-learning",
+            state: "exited",
+            status: "Exited (137) 5 minutes ago",
+            exitCode: 137,
+            oomKilled: true,
+            ports: [],
+            project: undefined,
+            self: false,
+          },
+          {
             id: "b".repeat(64),
             name: "watchtower",
             image: "containrrr/watchtower",
             state: "exited",
             status: "Exited (0) 2 days ago",
+            exitCode: 0,
             ports: [],
             project: undefined,
             self: false,

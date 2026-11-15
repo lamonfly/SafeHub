@@ -3,7 +3,7 @@ import { z } from "zod";
 import { perSettings } from "@/lib/settings/memo";
 import { getSetting } from "@/lib/settings/store";
 import { resolveService, type DiscoverableApp } from "../discovery";
-import { createHttpClient, type HttpClient, type ServiceSummary } from "../http";
+import { createHttpClient, type HttpClient, type ServiceAction, type ServiceSummary } from "../http";
 import { serviceTlsAgent } from "../tls";
 
 // Sonarr, Radarr (API v3) and Prowlarr (API v1) share the same base API.
@@ -78,3 +78,40 @@ export async function prowlarrSummary(client: HttpClient): Promise<ServiceSummar
     ],
   };
 }
+
+// Starts a background command (Settings > System > Tasks in the app).
+async function command(client: HttpClient, name: string): Promise<string> {
+  await client.post("api/v3/command", z.unknown(), { name });
+  return "Started.";
+}
+
+const searchWarning = (what: string) =>
+  `Searches your indexers for every missing monitored ${what}. With many missing items this takes a while and uses up indexer API limits.`;
+
+const refreshWarning = (what: string) =>
+  `Reloads the details of all ${what} and rescans their folders on disk. On a large library this keeps the app and the disks busy for a while.`;
+
+export const sonarrActions: ServiceAction[] = [
+  { id: "search-missing", label: "Search missing", confirm: searchWarning("episode"), run: (client) => command(client, "MissingEpisodeSearch") },
+  { id: "refresh", label: "Refresh all", confirm: refreshWarning("series"), run: (client) => command(client, "RefreshSeries") },
+];
+
+export const radarrActions: ServiceAction[] = [
+  { id: "search-missing", label: "Search missing", confirm: searchWarning("movie"), run: (client) => command(client, "MissingMoviesSearch") },
+  { id: "refresh", label: "Refresh all", confirm: refreshWarning("movies"), run: (client) => command(client, "RefreshMovie") },
+];
+
+const testResultsSchema = z.array(z.object({ isValid: z.boolean() }));
+
+export const prowlarrActions: ServiceAction[] = [
+  {
+    id: "test-indexers",
+    label: "Test indexers",
+    run: async (client) => {
+      // Answers 400 (with the same list) when any indexer fails.
+      const results = await client.post("api/v1/indexer/testall", testResultsSchema, undefined, { acceptStatuses: [400] });
+      const failed = results.filter((result) => !result.isValid).length;
+      return failed === 0 ? `All ${results.length} indexers work.` : `${failed} of ${results.length} indexers failed.`;
+    },
+  },
+];

@@ -61,6 +61,11 @@ export type DockerContainer = {
   state: string;
   // Human text from Docker, e.g. "Up 3 hours (healthy)".
   status: string;
+  // Exit code of a stopped container ("Exited (137) 2 hours ago").
+  exitCode?: number;
+  // Killed for running out of memory. Exit code 137 alone cannot tell this
+  // from "docker stop", so such containers are inspected.
+  oomKilled?: boolean;
   // Ports published on the Docker host (TCP), lowest first.
   ports: number[];
   // Compose project, when started with docker compose.
@@ -125,6 +130,11 @@ function findOwnContainerId(): string {
 const ownContainerId = findOwnContainerId();
 const isOwnContainer = (id: string) => /^[a-f0-9]{12,64}$/.test(ownContainerId) && id.startsWith(ownContainerId.slice(0, 12));
 
+function exitCodeOf(status: string): number | undefined {
+  const match = status.match(/^Exited \((-?\d+)\)/);
+  return match ? Number(match[1]) : undefined;
+}
+
 export function toContainer(raw: z.infer<typeof containersSchema>[number]): DockerContainer {
   const ports = new Set<number>();
   for (const port of raw.Ports) {
@@ -137,10 +147,36 @@ export function toContainer(raw: z.infer<typeof containersSchema>[number]): Dock
     image: raw.Image,
     state: raw.State,
     status: raw.Status,
+    exitCode: raw.State === "exited" ? exitCodeOf(raw.Status) : undefined,
     ports: [...ports].sort((a, b) => a - b),
     project: raw.Labels?.["com.docker.compose.project"],
     self: isOwnContainer(raw.Id),
   };
+}
+
+const inspectSchema = z.object({ State: z.object({ OOMKilled: z.boolean().default(false) }) });
+
+// Result per container ID while it stays exited with 137: a stopped
+// container does not change, so it is inspected once, not every minute.
+const oomChecked = new Map<string, boolean>();
+
+async function markOutOfMemory(client: HttpClient, containers: DockerContainer[]): Promise<void> {
+  const candidates = containers.filter((container) => container.state === "exited" && container.exitCode === 137);
+  const ids = new Set(candidates.map((container) => container.id));
+  for (const id of oomChecked.keys()) if (!ids.has(id)) oomChecked.delete(id);
+  await Promise.all(
+    candidates.map(async (container) => {
+      let oom = oomChecked.get(container.id);
+      if (oom === undefined) {
+        oom = await client
+          .get(`containers/${container.id}/json`, inspectSchema)
+          .then((details) => details.State.OOMKilled)
+          .catch(() => undefined);
+        if (oom !== undefined) oomChecked.set(container.id, oom);
+      }
+      container.oomKilled = oom ?? false;
+    }),
+  );
 }
 
 async function fetchHost(client: HttpClient): Promise<DockerHost> {
@@ -152,12 +188,13 @@ async function fetchHost(client: HttpClient): Promise<DockerHost> {
   const gateways = networks.flatMap((network) =>
     (network.IPAM?.Config ?? []).flatMap((config) => (config.Gateway ? [config.Gateway] : [])),
   );
+  const list = containers.map(toContainer);
+  await markOutOfMemory(client, list);
   return {
     name: info.Name,
     version: info.ServerVersion,
     gateways: [...new Set(gateways)],
-    containers: containers
-      .map(toContainer)
+    containers: list
       .sort(
         (a, b) =>
           (stateOrder[a.state] ?? 3) - (stateOrder[b.state] ?? 3) || a.name.localeCompare(b.name),
