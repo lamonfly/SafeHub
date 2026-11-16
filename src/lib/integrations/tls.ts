@@ -57,15 +57,23 @@ function pinningConnector(pinName: string): buildConnector.connector {
       if (pinned.fingerprint === fingerprint) return callback(null, socket);
 
       socket.destroy();
+      presentedFingerprints.set(pinId, fingerprint);
       callback(new CertificateChangedError(pinId, pinned.fingerprint, fingerprint), null);
     });
 }
 
-const fingerprintPattern = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
+// Last certificate each service presented that did not match its pin. Accept
+// only takes this one: the browser cannot choose what gets pinned, so a
+// forged request cannot pin an attacker's certificate the service never
+// showed. Process memory is enough: after a restart the next request raises
+// the error (and fills this) again.
+const presentedFingerprints = new Map<string, string>();
 
 // Replaces a pin after the owner confirmed the new certificate (e.g. renewed).
+// The fingerprint must be the one the service presented last.
 export function acceptCertificate(pinId: string, fingerprint: string): boolean {
-  if (!fingerprintPattern.test(fingerprint)) return false;
+  if (presentedFingerprints.get(pinId) !== fingerprint) return false;
+  presentedFingerprints.delete(pinId);
   const updated = db
     .update(certPin)
     .set({ fingerprint, pinnedAt: new Date() })

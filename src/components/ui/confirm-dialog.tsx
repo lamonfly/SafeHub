@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Button } from "./button";
 
 type ConfirmOptions = {
@@ -16,6 +16,8 @@ type ConfirmOptions = {
 //   return <>{dialog} ...</>;
 export function useConfirm(): [(options: ConfirmOptions) => Promise<boolean>, ReactNode] {
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const messageId = useId();
   const resolve = useRef<((confirmed: boolean) => void) | null>(null);
   const [options, setOptions] = useState<ConfirmOptions>();
 
@@ -40,6 +42,8 @@ export function useConfirm(): [(options: ConfirmOptions) => Promise<boolean>, Re
   const dialog = (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
+      aria-describedby={options?.message ? messageId : undefined}
       onClose={() => finish(false)}
       onClick={(event) => {
         // Tap on the backdrop cancels, as in M3.
@@ -49,8 +53,8 @@ export function useConfirm(): [(options: ConfirmOptions) => Promise<boolean>, Re
     >
       {options && (
         <div className="flex flex-col gap-4">
-          <h2 className="text-2xl leading-8">{options.title}</h2>
-          {options.message && <div className="text-sm text-on-surface-variant">{options.message}</div>}
+          <h2 id={titleId} className="text-2xl leading-8">{options.title}</h2>
+          {options.message && <div id={messageId} className="text-sm text-on-surface-variant">{options.message}</div>}
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button variant="text" onClick={() => finish(false)}>
               Cancel

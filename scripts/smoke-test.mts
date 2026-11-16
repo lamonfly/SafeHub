@@ -77,9 +77,21 @@ try {
   }
 
   // 3. Every page, logged in or not, with what it must contain.
-  const checks: { path: string; status: number; loggedIn?: boolean; contains?: string; location?: string }[] = [
+  const checks: {
+    path: string;
+    status: number;
+    method?: "POST";
+    loggedIn?: boolean;
+    contains?: string;
+    location?: string;
+  }[] = [
     { path: "/api/health", status: 200 },
     { path: "/login", status: 200, contains: "Sign in to SafeHub" },
+    // First-run setup is closed once an admin exists.
+    { path: "/setup", status: 307, location: "/login" },
+    // better-auth HTTP routes SafeHub does not use answer 404, also ones not
+    // in disabledPaths (the OAuth callback would otherwise redirect).
+    { path: "/api/auth/callback/github", method: "POST", status: 404 },
     { path: "/", status: 307, location: "/login" },
     { path: "/", status: 200, loggedIn: true, contains: "problem" },
     { path: "/settings", status: 200, loggedIn: true, contains: "Settings" },
@@ -88,17 +100,28 @@ try {
     { path: "/history/synology", status: 200, loggedIn: true },
     { path: "/history/node/pve", status: 200, loggedIn: true, contains: "Proxmox node pve" },
     { path: "/history/guest/pve/101", status: 200, loggedIn: true },
+    // Reads only stored history, so it renders without Docker.
+    { path: "/history/docker/sonarr", status: 200, loggedIn: true, contains: "sonarr (container)" },
+    { path: "/history/docker/..%2Fetc", status: 404, loggedIn: true },
     { path: "/history/bogus", status: 404, loggedIn: true },
     { path: "/manifest.webmanifest", status: 200, contains: "SafeHub" },
     { path: "/pwa-icon/192", status: 200 },
+    { path: "/pwa-icon/maskable-512", status: 200 },
+    { path: "/apple-icon", status: 200 },
     { path: "/icon", status: 200 },
   ];
   for (const check of checks) {
     const response = await fetch(`${base}${check.path}`, {
+      method: check.method ?? "GET",
       redirect: "manual",
-      headers: check.loggedIn ? { cookie } : {},
+      headers: {
+        ...(check.loggedIn ? { cookie } : {}),
+        // Same origin, so better-auth's origin check is not what answers.
+        ...(check.method === "POST" ? { Origin: base, "Content-Type": "application/json" } : {}),
+      },
+      body: check.method === "POST" ? "{}" : undefined,
     });
-    const label = `${check.loggedIn ? "logged in" : "anonymous"} ${check.path}`;
+    const label = `${check.loggedIn ? "logged in" : "anonymous"} ${check.method ?? "GET"} ${check.path}`;
     if (response.status !== check.status) failures.push(`${label}: status ${response.status}, expected ${check.status}`);
     if (check.location && !response.headers.get("location")?.endsWith(check.location)) {
       failures.push(`${label}: redirected to ${response.headers.get("location")}, expected ${check.location}`);

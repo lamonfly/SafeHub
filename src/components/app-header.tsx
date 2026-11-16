@@ -20,8 +20,8 @@ export function AppHeader({ userName }: { userName: string }) {
     <header className="sticky top-0 z-10 bg-surface/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-surface/85">
       <div className="mx-auto flex min-h-16 w-full max-w-6xl items-center justify-between gap-2 pr-[max(0.25rem,env(safe-area-inset-right))] pl-[max(1rem,env(safe-area-inset-left))] sm:pr-6 sm:pl-6">
         <div className="flex min-w-0 items-center gap-3">
-          <Link href="/" className="truncate text-[22px] leading-7 text-on-surface">
-            SafeHub
+          <Link href="/" className="flex min-h-12 min-w-0 items-center text-[22px] leading-7 text-on-surface">
+            <span className="truncate">SafeHub</span>
           </Link>
           {/* Never hold the page for GitHub: render the badge when it is ready. */}
           <Suspense fallback={null}>

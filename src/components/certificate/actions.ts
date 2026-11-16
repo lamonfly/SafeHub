@@ -7,7 +7,7 @@ import { requireSession } from "@/lib/session";
 
 const inputSchema = z.object({
   pinId: z.string().min(1).max(300),
-  fingerprint: z.string(),
+  fingerprint: z.string().max(200),
 });
 
 export async function acceptCertificateAction(

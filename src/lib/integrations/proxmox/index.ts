@@ -6,8 +6,8 @@ import { getFlag, getSetting } from "@/lib/settings/store";
 import { createHttpClient, type HttpClient } from "../http";
 import { errorResult, type IntegrationResult } from "../result";
 import { createTlsAgent } from "../tls";
-import { getGuestNetworks, type GuestNetworks } from "./addresses";
-import { fetchBackupInfo, type BackupInfo } from "./backups";
+import { forgetOtherGuests, getGuestNetworks, type GuestNetworks } from "./addresses";
+import { createBackupReader, fetchBackupInfo, type BackupInfo } from "./backups";
 import { cacheFor } from "../cache";
 import {
   guestSchema,
@@ -55,38 +55,14 @@ export function getProxmoxClient(): HttpClient | null {
   return getClient();
 }
 
-// Backups are guarded by the token's rights and slow to list, so they are
-// fetched at most every 10 minutes, a failure is not retried for 3 minutes,
-// and the overview never waits long for them: it shows the last known
-// result (or none) while a slow listing finishes in the background.
-const BACKUP_WAIT_MS = 1_500;
-const BACKUP_RETRY_MS = 3 * 60_000;
-const getBackups = perSettings(() => {
-  const cached = cacheFor(10 * 60_000, (nodes: string[]) => {
+// One backup reader per settings (see createBackupReader for the timing).
+const getBackups = perSettings(() =>
+  createBackupReader((nodes) => {
     const client = getBackupClient();
     if (!client) return Promise.reject(new Error("Proxmox is not configured"));
     return fetchBackupInfo(client, nodes);
-  });
-  let failedAt = 0;
-  let last: BackupInfo | null = null;
-  return async (nodes: string[]): Promise<BackupInfo | null> => {
-    if (Date.now() - failedAt < BACKUP_RETRY_MS) return last;
-    const pending = cached(nodes).then(
-      (info) => (last = info),
-      () => {
-        failedAt = Date.now();
-        return last;
-      },
-    );
-    let timer: NodeJS.Timeout | undefined;
-    const waited = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), BACKUP_WAIT_MS);
-    });
-    const result = await Promise.race([pending, waited]);
-    clearTimeout(timer);
-    return result ?? last;
-  };
-});
+  }),
+);
 
 export function backupMaxAgeDays(): number {
   const days = Number(getSetting("PROXMOX_BACKUP_MAX_AGE_DAYS") ?? 7);
@@ -118,37 +94,62 @@ export type ProxmoxOverview = {
   backups: BackupInfo | null;
 };
 
+// Always asks Proxmox (the sampler, the setup check, and right after a
+// certificate was accepted). The dashboard uses getCachedProxmoxOverview.
 export async function getProxmoxOverview(): Promise<IntegrationResult<ProxmoxOverview>> {
   const client = getClient();
   if (!client) return { status: "not-configured" };
   try {
-    const [nodes, guests] = await Promise.all([
-      request(client, "get", "nodes", z.array(nodeSchema)),
-      request(client, "get", "cluster/resources?type=vm", z.array(guestSchema)),
-    ]);
-    const visible = guests.filter((guest) => !guest.template).sort((a, b) => a.vmid - b.vmid);
-    const [withAddresses, backups] = await Promise.all([
-      Promise.all(visible.map(async (guest) => ({ ...guest, ...(await getGuestNetworks(client, guest)) }))),
-      getBackups()(nodes.filter((node) => node.status === "online").map((node) => node.node)),
-    ]);
-    const now = Date.now();
-    const maxAgeMs = backupMaxAgeDays() * 86_400_000;
-    const withBackups = withAddresses.map((guest) => {
-      if (!backups) return guest;
-      const last = backups.lastBackup[guest.vmid];
-      const backupAgeMs = last === undefined ? null : now - last;
-      // With a storage missing, a newer backup may sit on it: never call a
-      // guest overdue on partial data.
-      const complete = backups.failedStorages.length === 0;
-      return { ...guest, backupAgeMs, backupOverdue: complete && backupAgeMs !== null && backupAgeMs > maxAgeMs };
-    });
-    return {
-      status: "ok",
-      data: { nodes: nodes.sort((a, b) => a.node.localeCompare(b.node)), guests: withBackups, backups },
-    };
+    return { status: "ok", data: await fetchOverview(client) };
   } catch (error) {
     return errorResult(error);
   }
+}
+
+// For pages that refresh every 10 s: several open tabs share one round of
+// Proxmox calls for 5 s. Failures are not cached, so an error (or an accepted
+// certificate) shows on the next refresh. A guest action replaces the cache,
+// so the refresh after it shows the new state.
+function newOverviewCache() {
+  return cacheFor(5_000, () => {
+    const client = getClient();
+    return client ? fetchOverview(client) : Promise.reject(new Error("Proxmox is not configured"));
+  });
+}
+const overviewCache = perSettings(() => ({ current: newOverviewCache() }));
+
+export async function getCachedProxmoxOverview(): Promise<IntegrationResult<ProxmoxOverview>> {
+  if (!getClient()) return { status: "not-configured" };
+  try {
+    return { status: "ok", data: await overviewCache().current() };
+  } catch (error) {
+    return errorResult(error);
+  }
+}
+
+async function fetchOverview(client: HttpClient): Promise<ProxmoxOverview> {
+  const [nodes, guests] = await Promise.all([
+    request(client, "get", "nodes", z.array(nodeSchema)),
+    request(client, "get", "cluster/resources?type=vm", z.array(guestSchema)),
+  ]);
+  const visible = guests.filter((guest) => !guest.template).sort((a, b) => a.vmid - b.vmid);
+  forgetOtherGuests(client, guests);
+  const [withAddresses, backups] = await Promise.all([
+    Promise.all(visible.map(async (guest) => ({ ...guest, ...(await getGuestNetworks(client, guest)) }))),
+    getBackups()(nodes.filter((node) => node.status === "online").map((node) => node.node)),
+  ]);
+  const now = Date.now();
+  const maxAgeMs = backupMaxAgeDays() * 86_400_000;
+  const withBackups = withAddresses.map((guest) => {
+    if (!backups) return guest;
+    const last = backups.lastBackup[guest.vmid];
+    const backupAgeMs = last === undefined ? null : now - last;
+    // With a storage missing, a newer backup may sit on it: never call a
+    // guest overdue on partial data.
+    const complete = backups.failedStorages.length === 0;
+    return { ...guest, backupAgeMs, backupOverdue: complete && backupAgeMs !== null && backupAgeMs > maxAgeMs };
+  });
+  return { nodes: nodes.sort((a, b) => a.node.localeCompare(b.node)), guests: withBackups, backups };
 }
 
 // Starts a Proxmox task and returns its UPID. The task runs asynchronously;
@@ -171,5 +172,7 @@ export async function runGuestAction({
     return { status: "ok", data: upid };
   } catch (error) {
     return errorResult(error);
+  } finally {
+    overviewCache().current = newOverviewCache();
   }
 }

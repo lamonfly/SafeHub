@@ -79,14 +79,26 @@ async function fetchNetworks(client: HttpClient, guest: ProxmoxGuest): Promise<G
   );
 }
 
-// A failed lookup (timeout, guest agent still starting after a boot) is
-// asked again sooner, and keeps the last known addresses meanwhile, so
-// services and containers do not drop out of the tree for minutes.
+// A failed lookup (timeout, guest agent still starting after a boot) keeps
+// the last known addresses, so services and containers do not drop out of
+// the tree. It is retried after 30 s, then after twice as long on every
+// further failure, up to 10 minutes: a VM with the agent enabled but not
+// installed would otherwise cost a slow call every 30 s. The overview waits
+// at most 1 s for a lookup; a slower one finishes in the background and
+// its result shows on the next refresh.
 const RETRY_MS = 30_000;
+const MAX_RETRY_MS = 10 * 60_000;
+export const ADDRESS_WAIT_MS = 1_000;
 
-const cache = new Map<string, { at: number; ok: boolean; networks: GuestNetworks }>();
+type Entry = { at: number; failures: number; networks: GuestNetworks };
+const cache = new Map<string, Entry>();
+const inFlight = new Map<string, Promise<GuestNetworks>>();
 let cachedFor: HttpClient | undefined;
 const none: GuestNetworks = { addresses: [], dockerNetworks: [] };
+
+function freshFor(entry: Entry): number {
+  return entry.failures === 0 ? CACHE_MS : Math.min(RETRY_MS * 2 ** (entry.failures - 1), MAX_RETRY_MS);
+}
 
 // Never throws: a guest without an agent, or a token without the right
 // permission, just has no addresses.
@@ -95,19 +107,57 @@ export async function getGuestNetworks(client: HttpClient, guest: ProxmoxGuest):
   // A new client means new settings (another Proxmox): forget everything.
   if (cachedFor !== client) {
     cache.clear();
+    inFlight.clear();
     cachedFor = client;
   }
   const key = `${guest.node}/${guest.vmid}`;
   const cached = cache.get(key);
-  if (cached && Date.now() - cached.at < (cached.ok ? CACHE_MS : RETRY_MS)) return cached.networks;
+  if (cached && Date.now() - cached.at < freshFor(cached)) return cached.networks;
 
-  try {
-    const networks = await fetchNetworks(client, guest);
-    cache.set(key, { at: Date.now(), ok: true, networks });
-    return networks;
-  } catch {
-    const networks = cached?.networks ?? none;
-    cache.set(key, { at: Date.now(), ok: false, networks });
-    return networks;
+  let lookup = inFlight.get(key);
+  // False once settings changed or the guest was deleted meanwhile.
+  const current = () => cachedFor === client && inFlight.get(key) === lookup;
+  if (!lookup) {
+    lookup = fetchNetworks(client, guest)
+      .then(
+        (networks) => {
+          if (current()) cache.set(key, { at: Date.now(), failures: 0, networks });
+          return networks;
+        },
+        () => {
+          const previous = cache.get(key);
+          const networks = previous?.networks ?? none;
+          if (current()) {
+            cache.set(key, { at: Date.now(), failures: (previous?.failures ?? 0) + 1, networks });
+          }
+          return networks;
+        },
+      )
+      .finally(() => {
+        if (inFlight.get(key) === lookup) inFlight.delete(key);
+      });
+    inFlight.set(key, lookup);
   }
+
+  let timer: NodeJS.Timeout | undefined;
+  const waited = new Promise<GuestNetworks>((resolve) => {
+    timer = setTimeout(() => resolve(cached?.networks ?? none), ADDRESS_WAIT_MS);
+  });
+  const networks = await Promise.race([lookup, waited]);
+  clearTimeout(timer);
+  return networks;
+}
+
+// Drops what is kept for guests that no longer exist, so deleted guests do
+// not pile up. Called with every guest of a fresh overview.
+export function forgetOtherGuests(client: HttpClient, guests: Pick<ProxmoxGuest, "node" | "vmid">[]): void {
+  if (cachedFor !== client) return;
+  const keep = new Set(guests.map((guest) => `${guest.node}/${guest.vmid}`));
+  for (const key of cache.keys()) if (!keep.has(key)) cache.delete(key);
+  for (const key of inFlight.keys()) if (!keep.has(key)) inFlight.delete(key);
+}
+
+// For tests: the guests something is kept for.
+export function rememberedGuests(): string[] {
+  return [...new Set([...cache.keys(), ...inFlight.keys()])].sort();
 }

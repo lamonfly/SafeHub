@@ -3,10 +3,12 @@ import { randomBytes } from "node:crypto";
 import { accessSync, constants, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { httpUrl } from "@/lib/url";
 
 // Integrations are optional: an unset URL means "not configured", and the
 // dashboard shows that state instead of failing. Set values must be valid.
-const optionalUrl = z.url().optional();
+// URLs: http/https only, no user:password@ (see lib/url.ts).
+const optionalUrl = httpUrl.optional();
 const optionalSecret = z.string().min(1).optional();
 const optionalFlag = z.stringbool().default(false);
 // Checked at boot so a wrong path stops the server with a clear message,
@@ -29,14 +31,14 @@ const envSchema = z.object({
   // - no secret: one is generated on first start and kept next to the database
   // - no URL: SafeHub works at whatever address it is opened with
   BETTER_AUTH_SECRET: z.string().min(32).optional(),
-  BETTER_AUTH_URL: z.url().optional(),
+  BETTER_AUTH_URL: optionalUrl,
   // Extra addresses SafeHub is opened at, comma-separated, e.g. the LAN IP
   // when BETTER_AUTH_URL is the Caddy domain.
   BETTER_AUTH_TRUSTED_ORIGINS: z
     .string()
     .default("")
     .transform((value) => value.split(",").map((origin) => origin.trim()).filter(Boolean))
-    .pipe(z.array(z.url())),
+    .pipe(z.array(httpUrl)),
   DATABASE_PATH: z.string().min(1).default("./data/safehub.db"),
 
   // Proxmox VE: API token auth, e.g. PROXMOX_TOKEN_ID="user@pam!safehub"
@@ -72,6 +74,13 @@ const envSchema = z.object({
   SEERR_API_KEY: optionalSecret,
   IMMICH_URL: optionalUrl,
   IMMICH_API_KEY: optionalSecret,
+
+  // Downloads: qBittorrent Web UI (login optional) and Gluetun's control server.
+  QBITTORRENT_URL: optionalUrl,
+  QBITTORRENT_USERNAME: optionalSecret,
+  QBITTORRENT_PASSWORD: optionalSecret,
+  GLUETUN_URL: optionalUrl,
+  GLUETUN_API_KEY: optionalSecret,
 
   // Docker socket mounted into the container; Docker is hidden without it.
   DOCKER_SOCKET: z.string().min(1).default("/var/run/docker.sock"),

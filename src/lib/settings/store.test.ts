@@ -58,6 +58,16 @@ describe("settings store", () => {
     expect(() => store.saveSettings({ NOT_A_SETTING: "x" })).toThrow(store.SettingValidationError);
   });
 
+  it("accepts only http(s) URLs without user:password@", () => {
+    store.saveSettings({ JELLYFIN_URL: "https://jellyfin.lan:8920" });
+    expect(store.getSetting("JELLYFIN_URL")).toBe("https://jellyfin.lan:8920");
+    for (const url of ["ftp://jellyfin", "file:///etc/passwd", "javascript:alert(1)", "http://user:pass@jellyfin:8096", "http://user@jellyfin"]) {
+      expect(() => store.saveSettings({ JELLYFIN_URL: url })).toThrow(store.SettingValidationError);
+    }
+    expect(store.getSetting("JELLYFIN_URL")).toBe("https://jellyfin.lan:8920");
+    store.saveSettings({ JELLYFIN_URL: null });
+  });
+
   it("accepts whole numbers of days only", () => {
     for (const days of ["1", "7", "30", "999"]) {
       store.saveSettings({ PROXMOX_BACKUP_MAX_AGE_DAYS: days });

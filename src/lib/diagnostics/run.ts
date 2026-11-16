@@ -1,13 +1,12 @@
 import "server-only";
-import { lookup } from "node:dns/promises";
-import { isIPv4 } from "node:net";
 import { count, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { alert, metricSample } from "@/db/schema";
 import { formatDuration } from "@/lib/format";
 import { discovered } from "@/lib/integrations/discovery";
-import { guestKey, placeServices } from "@/lib/integrations/placement";
+import { dockerSocketState, getDockerHost, isDockerConfigured } from "@/lib/integrations/docker";
+import { createHostResolver, guestKey, placeServices } from "@/lib/integrations/placement";
 import { backupMaxAgeDays, getProxmoxClient, getProxmoxOverview, isProxmoxConfigured } from "@/lib/integrations/proxmox";
 import { responseSchema } from "@/lib/integrations/proxmox/schemas";
 import { attempt } from "@/lib/integrations/result";
@@ -29,7 +28,7 @@ function safehubSection(now: number): Section {
   const builtAt = Date.parse(process.env.SAFEHUB_BUILT_AT ?? "");
   const lastSample = db.select({ ts: sql<number | null>`max(${metricSample.ts})` }).from(metricSample).get()?.ts ?? null;
   const open = db.select({ value: count() }).from(alert).where(isNull(alert.endedAt)).get()?.value ?? 0;
-  const sampled = isSynologyConfigured() || isProxmoxConfigured() || hasConfiguredServices();
+  const sampled = isSynologyConfigured() || isProxmoxConfigured() || hasConfiguredServices() || isDockerConfigured();
   return {
     title: "SafeHub",
     checks: [
@@ -76,7 +75,7 @@ async function proxmoxSection(now: number): Promise<Section | null> {
       right("Read nodes and tasks", ["Sys.Audit"], "Missing Sys.Audit: give the token PVEAuditor on /."),
       right("Read guests and LXC addresses", ["VM.Audit"], "Missing VM.Audit: give the token PVEAuditor on /."),
       right("Read backups", ["Datastore.Audit"], "Missing Datastore.Audit: backup status stays hidden.", false),
-      right("VM addresses (guest agent)", ["VM.GuestAgent.Audit", "VM.Monitor"], "Missing: VM addresses stay hidden (LXCs still work).", false),
+      right("VM addresses (guest agent)", ["VM.GuestAgent.Audit"], "Missing: VM addresses stay hidden (LXCs still work). Run Connect with password again, or add VM.GuestAgent.Audit to the token (Proxmox VE 9).", false),
       right("Start / stop buttons", ["VM.PowerMgmt"], "Missing VM.PowerMgmt (PVEVMUser): buttons will fail.", false),
     );
   } else {
@@ -143,10 +142,41 @@ async function synologySection(): Promise<Section | null> {
   };
 }
 
-async function resolve(host: string): Promise<string[]> {
-  if (isIPv4(host)) return [host];
-  return lookup(host, { all: true, family: 4 }).then((results) => results.map((result) => result.address), () => []);
+// Docker socket: absent means not used (no section); mounted but not
+// accessible hides Docker everywhere else, so say why here.
+async function dockerSection(): Promise<Section | null> {
+  const state = dockerSocketState();
+  if (state === "missing") return null;
+  if (state === "no-access") {
+    return {
+      title: "Docker",
+      checks: [
+        {
+          label: "Socket",
+          status: "warn",
+          detail:
+            "Mounted, but SafeHub may not use it, so Docker stays hidden. The socket probably belongs to group 0 (root): give it a non-root group on the host (sudo chgrp docker /var/run/docker.sock), then restart SafeHub.",
+        },
+      ],
+    };
+  }
+  const host = await getDockerHost();
+  if (host.status !== "ok") {
+    return { title: "Docker", checks: [{ label: "Connection", status: "fail", detail: host.status === "error" ? host.message : "" }] };
+  }
+  const running = host.data.containers.filter((container) => container.state === "running").length;
+  return {
+    title: "Docker",
+    checks: [
+      { label: "Connection", status: "ok", detail: `${host.data.name}${host.data.version ? `, Docker ${host.data.version}` : ""}` },
+      { label: "Containers", status: "info", detail: `${running} of ${host.data.containers.length} running` },
+    ],
+  };
 }
+
+// Same resolver as the dashboard's placement (timeout, one lookup per host),
+// with more patience: the setup check may take a few seconds.
+const resolve = createHostResolver(undefined, 3_000);
 
 async function servicesSection(): Promise<Section | null> {
   if (!hasConfiguredServices()) return null;
@@ -208,8 +238,14 @@ async function setupSection(): Promise<Section> {
 
 export async function runDiagnostics(): Promise<Section[]> {
   const now = Date.now();
-  const [proxmox, synology, services, setup] = await Promise.all([proxmoxSection(now), synologySection(), servicesSection(), setupSection()]);
-  return [safehubSection(now), ...[proxmox, synology, services].filter((section): section is Section => section !== null), setup];
+  const [proxmox, synology, docker, services, setup] = await Promise.all([
+    proxmoxSection(now),
+    synologySection(),
+    dockerSection(),
+    servicesSection(),
+    setupSection(),
+  ]);
+  return [safehubSection(now), ...[proxmox, synology, docker, services].filter((section): section is Section => section !== null), setup];
 }
 
 // Plain text for sharing: no keys, tokens or passwords are ever part of it.

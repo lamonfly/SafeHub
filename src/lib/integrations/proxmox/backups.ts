@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { cacheFor } from "../cache";
 import type { HttpClient } from "../http";
 import { responseSchema } from "./schemas";
 
@@ -105,5 +106,49 @@ export async function fetchBackupInfo(client: HttpClient, nodes: string[]): Prom
     storages: [...storages].sort(),
     failedStorages: [...failedStorages].sort(),
     jobs: [...latest.values()],
+  };
+}
+
+// Backups are guarded by the token's rights and slow to list, so they are
+// fetched at most every 10 minutes, a failure is not retried for 3 minutes,
+// and the overview never waits long for them: it shows the last known
+// result while a slow listing finishes in the background. The last result
+// is only shown while it is younger than two cache periods; after that a
+// failing listing leaves no backup data (null) rather than old data.
+export const BACKUP_CACHE_MS = 10 * 60_000;
+export const BACKUP_WAIT_MS = 1_500;
+export const BACKUP_RETRY_MS = 3 * 60_000;
+export const BACKUP_STALE_MS = 2 * BACKUP_CACHE_MS;
+
+export function createBackupReader(
+  fetchInfo: (nodes: string[]) => Promise<BackupInfo>,
+): (nodes: string[]) => Promise<BackupInfo | null> {
+  const cached = cacheFor(BACKUP_CACHE_MS, fetchInfo);
+  let failedAt: number | undefined;
+  let last: { info: BackupInfo; fetchedAt: number } | undefined;
+  const known = () => (last && Date.now() - last.fetchedAt < BACKUP_STALE_MS ? last.info : null);
+
+  return async (nodes) => {
+    if (failedAt !== undefined && Date.now() - failedAt < BACKUP_RETRY_MS) return known();
+    const pending = cached(nodes).then(
+      (info) => {
+        // The cache hands out the same result for 10 minutes: keep the time
+        // it was fetched, not the time it was read.
+        if (last?.info !== info) last = { info, fetchedAt: Date.now() };
+        failedAt = undefined;
+        return info;
+      },
+      () => {
+        failedAt = Date.now();
+        return known();
+      },
+    );
+    let timer: NodeJS.Timeout | undefined;
+    const waited = new Promise<"waiting">((resolve) => {
+      timer = setTimeout(() => resolve("waiting"), BACKUP_WAIT_MS);
+    });
+    const result = await Promise.race([pending, waited]);
+    clearTimeout(timer);
+    return result === "waiting" ? known() : result;
   };
 }

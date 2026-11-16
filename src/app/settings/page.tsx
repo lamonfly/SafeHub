@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { NotificationPauseNote } from "@/components/alerts/notification-pause-note";
 import { AppHeader, PageBody } from "@/components/app-header";
 import { GroupForm, type FieldState } from "@/components/settings/group-form";
 import { NotificationTest } from "@/components/settings/notification-test";
@@ -52,6 +53,7 @@ export default async function SettingsPage() {
               <GroupForm groupId={group.id} fields={fields} />
               {group.id === "proxmox" && <ProxmoxConnectForm defaultUrl={getSetting("PROXMOX_URL")} />}
               {group.id === "notifications" && <NotificationTest configured={isNotificationsConfigured()} />}
+              {group.id === "notifications" && <NotificationPauseNote />}
             </Card>
           );
         })}

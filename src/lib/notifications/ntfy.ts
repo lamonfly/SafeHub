@@ -1,6 +1,7 @@
 import "server-only";
 import { fetch } from "undici";
 import type { AlertEvent } from "@/lib/alerts/rules";
+import { isMuted, notificationsPausedUntil } from "@/lib/alerts/store";
 import { env } from "@/lib/env";
 import { formatDuration } from "@/lib/format";
 import { getFlag, getSetting } from "@/lib/settings/store";
@@ -78,11 +79,19 @@ function toMessage(event: AlertEvent, now: number): Message {
 }
 
 // Sends the events of one sampler round. Never throws: a failed push is
-// logged and the alerts themselves are unaffected.
-export async function notify(events: AlertEvent[], now = Date.now()): Promise<void> {
+// logged and the alerts themselves are unaffected. Nothing is sent while
+// notifications are paused (maintenance), and nothing for muted alerts, not
+// even an escalation or the "resolved" push; those changes are not sent
+// later either: the Alerts page has them. stillWanted is asked before each
+// push: a sampler round given up by its watchdog stops sending, so it never
+// sends alongside the next round.
+export async function notify(events: AlertEvent[], now = Date.now(), stillWanted: () => boolean = () => true): Promise<void> {
   const settings = config();
   if (!settings || events.length === 0) return;
-  const wanted = settings.criticalOnly ? events.filter((event) => event.severity === "critical") : events;
+  if (notificationsPausedUntil(now)) return;
+  const wanted = events.filter(
+    (event) => !isMuted(event.mutedUntil, now) && (!settings.criticalOnly || event.severity === "critical"),
+  );
   if (wanted.length === 0) return;
 
   const messages = wanted.slice(0, wanted.length > MAX_PER_ROUND ? MAX_PER_ROUND - 1 : MAX_PER_ROUND).map((event) => toMessage(event, now));
@@ -97,6 +106,7 @@ export async function notify(events: AlertEvent[], now = Date.now()): Promise<vo
   }
 
   for (const message of messages) {
+    if (!stillWanted()) return;
     try {
       await publish(message);
     } catch (error) {

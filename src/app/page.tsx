@@ -51,7 +51,10 @@ export default async function DashboardPage() {
           </Suspense>
         )}
         {show.services && (
-          <Suspense fallback={<CardFallback title="Services" />}>
+          // With Proxmox, services may all sit under their guests and the
+          // card then never appears: no placeholder that would flash and
+          // vanish (the Proxmox card shows one while placement loads).
+          <Suspense fallback={show.proxmox ? null : <CardFallback title="Services" />}>
             <ServicesCard />
           </Suspense>
         )}

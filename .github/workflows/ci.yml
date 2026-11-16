@@ -67,15 +67,17 @@ jobs:
             type=raw,value=latest
             type=sha,format=short
 
-      # Run the real image before publishing it: entrypoint, privilege drop,
-      # Docker socket group, migrations and the health route.
-      - name: Build image for testing
+      # Build once, run the real image (entrypoint, privilege drop, Docker
+      # socket group, migrations, health route), then push exactly that image.
+      - name: Build image
         uses: docker/build-push-action@v6
         with:
           context: .
           load: true
           tags: safehub:ci
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Test image
         run: |
@@ -95,11 +97,12 @@ jobs:
           test -f ci-data/safehub.db
           docker rm -f safehub-ci
 
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      # No rebuild: tag and push the image that was just tested.
+      - name: Push tested image
+        env:
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          for tag in $TAGS; do
+            docker tag safehub:ci "$tag"
+            docker push "$tag"
+          done

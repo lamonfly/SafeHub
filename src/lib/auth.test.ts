@@ -66,3 +66,62 @@ describe("sign-in", () => {
     expect(results.filter((result) => result.startsWith("429:"))).toHaveLength(15);
   });
 });
+
+describe("HTTP routes", () => {
+  const request = (path: string, method = "POST") =>
+    authModule.auth.handler(
+      new Request(`http://localhost:3000/api/auth${path}`, {
+        method,
+        headers: { "Content-Type": "application/json", Origin: "http://localhost:3000" },
+        body: method === "GET" ? undefined : JSON.stringify({ newPassword: "x", currentPassword: "y", email: "a@b.c" }),
+      }),
+    );
+
+  it("answers 404 for every route SafeHub does not use", async () => {
+    for (const path of [
+      "/change-password",
+      "/set-password",
+      "/update-user",
+      "/change-email",
+      "/delete-user",
+      "/reset-password",
+      "/request-password-reset",
+      "/forget-password",
+      "/send-verification-email",
+      "/link-social",
+      "/unlink-account",
+      "/list-sessions",
+      "/revoke-sessions",
+      "/sign-in/username",
+      "/sign-up/email",
+      "/is-username-available",
+      "/callback/github",
+      "/reset-password/some-token",
+      "/change-password/",
+    ]) {
+      expect((await request(path)).status, path).toBe(404);
+    }
+    expect((await request("/verify-email?token=x", "GET")).status).toBe(404);
+  });
+
+  // Routes of the installed better-auth that disabledPaths does not cover
+  // (it matches exact paths only): only the onlyUsedRoutes plugin blocks
+  // them. Without it, the OAuth callback redirects (302) and the reset link
+  // answers 400.
+  it.each([
+    ["GET", "/callback/github"],
+    ["POST", "/callback/github"],
+    ["GET", "/reset-password/some-token"],
+  ])("blocks %s %s, which disabledPaths does not cover", async (method, path) => {
+    const disabled = authModule.auth.options.disabledPaths ?? [];
+    expect(disabled).not.toContain(path);
+    expect(disabled).not.toContain(path.replace(/\/[^/]+$/, "/:id"));
+    expect((await request(path, method)).status).toBe(404);
+  });
+
+  it("keeps reading the session working", async () => {
+    const response = await request("/get-session", "GET");
+    expect(response.status).toBe(200);
+    expect((await request("/ok", "GET")).status).toBe(200);
+  });
+});

@@ -43,7 +43,7 @@ export default async function DiagnosticsPage() {
       <AppHeader userName={user.name} />
       <PageBody>
         <div className="flex flex-col gap-1 px-1">
-          <Link href="/settings" className="text-sm text-primary hover:underline">
+          <Link href="/settings" className="inline-flex min-h-12 items-center self-start text-sm text-primary hover:underline">
             ← Settings
           </Link>
           <h1 className="text-[28px] leading-9 text-on-surface">Check setup</h1>

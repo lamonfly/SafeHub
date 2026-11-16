@@ -1,10 +1,12 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import Link from "next/link";
+import { useId, useRef, useState, useTransition } from "react";
 import { Button, buttonClass } from "@/components/ui/button";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { StatusDot, type StatusTone } from "@/components/ui/status-dot";
 import type { ContainerAction, DockerContainer } from "@/lib/integrations/docker";
+import { historyPath } from "@/lib/metrics/history-target";
 import { dockerContainerAction } from "./actions";
 
 function containerTone(container: DockerContainer): [StatusTone, string] {
@@ -29,6 +31,7 @@ const confirmations: Partial<Record<ContainerAction, string>> = {
 // dialog with its details, a link to its web page and its controls.
 export function ContainerChip({ container, hostAddress }: { container: DockerContainer; hostAddress?: string }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string>();
   const [confirm, confirmDialog] = useConfirm();
@@ -59,11 +62,12 @@ export function ContainerChip({ container, hostAddress }: { container: DockerCon
 
   return (
     <>
+      {/* 32 px chip as in M3; the after: box extends the tap area to 48 px. */}
       <button
         type="button"
         onClick={() => dialogRef.current?.showModal()}
         disabled={pending}
-        className="inline-flex h-8 max-w-full items-center gap-2 rounded-lg border border-outline-variant px-3 text-sm text-on-surface hover:bg-on-surface/8 disabled:opacity-40"
+        className="relative inline-flex h-8 max-w-full items-center gap-2 rounded-lg after:absolute after:inset-x-0 after:top-1/2 after:h-12 after:-translate-y-1/2 after:content-[''] border border-outline-variant px-3 text-sm text-on-surface hover:bg-on-surface/8 disabled:opacity-40"
       >
         <StatusDot tone={tone} label={label} />
         <span className="truncate">{container.name}</span>
@@ -73,6 +77,7 @@ export function ContainerChip({ container, hostAddress }: { container: DockerCon
       </button>
       <dialog
         ref={dialogRef}
+        aria-labelledby={titleId}
         onClick={(event) => {
           // Tap on the backdrop closes, as in M3.
           if (event.target === dialogRef.current) dialogRef.current?.close();
@@ -82,7 +87,9 @@ export function ContainerChip({ container, hostAddress }: { container: DockerCon
         <div className="flex flex-col gap-4">
           <div className="flex min-w-0 items-center gap-3">
             <StatusDot tone={tone} label={label} />
-            <h2 className="truncate text-2xl leading-8">{container.name}</h2>
+            <h2 id={titleId} className="truncate text-2xl leading-8">
+              {container.name}
+            </h2>
           </div>
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-on-surface-variant">Status</dt>
@@ -147,6 +154,9 @@ export function ContainerChip({ container, hostAddress }: { container: DockerCon
                 Open
               </a>
             )}
+            <Link href={historyPath({ kind: "docker", name: container.name })} className={buttonClass("text")}>
+              History
+            </Link>
             <Button variant="text" onClick={() => dialogRef.current?.close()}>
               Close
             </Button>

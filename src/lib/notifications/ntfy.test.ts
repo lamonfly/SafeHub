@@ -8,6 +8,9 @@ const published: Published[] = [];
 let server: Awaited<ReturnType<typeof startHttp>>;
 let ntfy: typeof import("./ntfy");
 let store: typeof import("@/lib/settings/store");
+let alerts: typeof import("@/lib/alerts/store");
+let db: Awaited<ReturnType<typeof migratedDb>>;
+let schema: typeof import("@/db/schema");
 
 beforeAll(async () => {
   server = await startHttp((request, body, response) => {
@@ -18,8 +21,10 @@ beforeAll(async () => {
     json(response, { id: "x" });
   });
   process.env.BETTER_AUTH_URL = "https://safehub.example.lan";
-  await migratedDb();
+  db = await migratedDb();
   store = await import("@/lib/settings/store");
+  alerts = await import("@/lib/alerts/store");
+  schema = await import("@/db/schema");
   ntfy = await import("./ntfy");
 });
 afterAll(() => server.close());
@@ -28,8 +33,10 @@ beforeEach(() => {
 });
 
 const now = Date.UTC(2026, 10, 14, 12, 0, 0);
-const event = (type: AlertEvent["type"], severity: AlertEvent["severity"], title: string): AlertEvent => ({
+const event = (type: AlertEvent["type"], severity: AlertEvent["severity"], title: string, mutedUntil: Date | null = null): AlertEvent => ({
   type,
+  key: title,
+  mutedUntil,
   severity,
   title,
   message: "Details.",
@@ -72,11 +79,67 @@ describe("ntfy notifications", () => {
     expect(published[3]).toMatchObject({ title: "6 more alert changes", priority: 5 });
   });
 
+  it("stop sending once the round is no longer wanted", async () => {
+    let calls = 0;
+    await ntfy.notify(
+      [event("opened", "critical", "First"), event("opened", "critical", "Second"), event("opened", "critical", "Third")],
+      now,
+      () => ++calls <= 1, // given up after the first push
+    );
+    expect(published.map((item) => item.title)).toEqual(["First"]);
+  });
+
   it("can be limited to critical alerts", async () => {
     store.saveSettings({ NTFY_CRITICAL_ONLY: "true" });
     await ntfy.notify([event("opened", "warning", "Node pve: CPU high"), event("opened", "critical", "Proxmox: unreachable")], now);
     expect(published.map((item) => item.title)).toEqual(["Proxmox: unreachable"]);
     store.saveSettings({ NTFY_CRITICAL_ONLY: null });
+  });
+
+  it("skip muted alerts, also their escalation and resolution, until the mute ends", async () => {
+    const muted = new Date(now + 3_600_000);
+    await ntfy.notify(
+      [
+        event("escalated", "critical", "Synology /volume1: almost full", muted),
+        event("resolved", "warning", "Sonarr: unreachable", muted),
+        event("opened", "warning", "Node pve: CPU high"),
+        event("resolved", "warning", "Radarr: unreachable", new Date(now - 1)),
+      ],
+      now,
+    );
+    expect(published.map((item) => item.title)).toEqual(["Node pve: CPU high", "Resolved: Radarr: unreachable"]);
+  });
+
+  it("send nothing at all while paused for maintenance", async () => {
+    alerts.pauseNotifications("1h", now);
+    expect(alerts.notificationsPausedUntil(now)?.getTime()).toBe(now + 3_600_000);
+    await ntfy.notify([event("opened", "critical", "Proxmox: unreachable"), event("resolved", "warning", "Sonarr: unreachable")], now);
+    expect(published).toHaveLength(0);
+    // Over after the hour, or when cancelled.
+    expect(alerts.notificationsPausedUntil(now + 3_600_000)).toBeNull();
+    alerts.pauseNotifications("off");
+    await ntfy.notify([event("opened", "critical", "Proxmox: unreachable")], now);
+    expect(published).toHaveLength(1);
+  });
+
+  it("mute only open alerts, for a while or until resolved", () => {
+    const [open, closed] = db
+      .insert(schema.alert)
+      .values([
+        { key: "a", severity: "warning", title: "A", message: "", startedAt: new Date(now) },
+        { key: "b", severity: "warning", title: "B", message: "", startedAt: new Date(now), endedAt: new Date(now) },
+      ])
+      .returning()
+      .all();
+    expect(alerts.muteAlert(open.id, "8h", now)).toBe(true);
+    const mutedUntil = () => alerts.listAlerts().find((item) => item.id === open.id)!.mutedUntil;
+    expect(mutedUntil()?.getTime()).toBe(now + 8 * 3_600_000);
+    expect(alerts.isMuted(mutedUntil(), now)).toBe(true);
+    expect(alerts.muteAlert(open.id, "resolved", now)).toBe(true);
+    expect(alerts.isMutedUntilResolved(mutedUntil())).toBe(true);
+    expect(alerts.muteAlert(open.id, "off", now)).toBe(true);
+    expect(mutedUntil()).toBeNull();
+    expect(alerts.muteAlert(closed.id, "1h", now)).toBe(false);
   });
 
   it("never throws on a failed push, but the test button reports it", async () => {

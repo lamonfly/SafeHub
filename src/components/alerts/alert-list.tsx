@@ -1,6 +1,8 @@
 import type { Alert } from "@/db/schema";
 import { LocalTime } from "@/components/ui/local-time";
+import { isMuted, isMutedUntilResolved } from "@/lib/alerts/store";
 import { formatDuration } from "@/lib/format";
+import { AlertMute } from "./alert-mute";
 
 const severityStyles = {
   critical: { chip: "bg-error-container text-on-error-container", dot: "bg-error", label: "Critical" },
@@ -9,7 +11,8 @@ const severityStyles = {
 
 // M3 list of alerts: open ones show how long they have lasted, closed ones
 // when they started and how long they lasted. Unread alerts are emphasised.
-export function AlertList({ alerts, now }: { alerts: Alert[]; now: number }) {
+// muteControls: open alerts get a Mute / Unmute button (on /alerts).
+export function AlertList({ alerts, now, muteControls = false }: { alerts: Alert[]; now: number; muteControls?: boolean }) {
   return (
     <ul className="flex flex-col">
       {alerts.map((item) => {
@@ -17,6 +20,7 @@ export function AlertList({ alerts, now }: { alerts: Alert[]; now: number }) {
         const started = item.startedAt.getTime();
         const ended = item.endedAt?.getTime();
         const unread = item.readAt === null;
+        const muted = !ended && isMuted(item.mutedUntil, now);
         return (
           <li key={item.id} className="flex gap-3 border-b border-outline-variant py-3 last:border-b-0">
             <span className={`mt-1.5 size-2.5 shrink-0 rounded-full ${ended ? "bg-outline" : style.dot}`} aria-hidden />
@@ -38,7 +42,20 @@ export function AlertList({ alerts, now }: { alerts: Alert[]; now: number }) {
                 {ended
                   ? ` · lasted ${formatDuration(ended - started)}`
                   : ` · ongoing for ${formatDuration(now - started)}`}
+                {muted && item.mutedUntil && (
+                  <>
+                    {" · "}
+                    {isMutedUntilResolved(item.mutedUntil) ? (
+                      "muted until resolved"
+                    ) : (
+                      <>
+                        muted until <LocalTime value={item.mutedUntil.getTime()} />
+                      </>
+                    )}
+                  </>
+                )}
               </p>
+              {muteControls && !ended && <AlertMute id={item.id} title={item.title} muted={muted} />}
             </div>
           </li>
         );

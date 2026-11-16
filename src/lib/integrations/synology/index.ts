@@ -1,11 +1,12 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { fetch, type Agent } from "undici";
+import type { Agent } from "undici";
 import { z } from "zod";
 import { env } from "@/lib/env";
 import { perSettings } from "@/lib/settings/memo";
 import { getFlag, getSetting } from "@/lib/settings/store";
 import { cacheFor } from "../cache";
+import { fetchWithoutLeaks } from "../http";
 import { attempt, type IntegrationResult } from "../result";
 import { createTlsAgent } from "../tls";
 
@@ -95,7 +96,9 @@ async function post<T extends z.ZodType>(
   params: Record<string, string>,
   schema: T,
 ): Promise<z.infer<T>> {
-  const response = await fetch(new URL(cgi, config.webapi), {
+  // Never follows a redirect (all calls are POST), so the password and the
+  // session id cannot end up at a redirect target.
+  const { response } = await fetchWithoutLeaks("Synology", new URL(cgi, config.webapi), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params).toString(),

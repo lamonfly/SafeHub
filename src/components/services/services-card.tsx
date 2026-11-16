@@ -1,13 +1,23 @@
+import { Suspense } from "react";
 import { CertificateChanged } from "@/components/certificate/certificate-changed";
 import { Card, Tile } from "@/components/ui/card";
 import { StatusDot } from "@/components/ui/status-dot";
 import type { IntegrationResult } from "@/lib/integrations/result";
-import { getSeerrPendingRequests, type SeerrRequest } from "@/lib/integrations/seerr";
-import { getServiceStatuses, type ServiceStatus } from "@/lib/integrations/services";
+import { getServicePlacement, getServiceTile } from "@/lib/dashboard";
+import type { SeerrRequest } from "@/lib/integrations/seerr";
+import type { ServiceInfo, ServiceStatus } from "@/lib/integrations/services";
 import { SeerrRequests } from "./seerr-requests";
 import { ServiceActions } from "./service-actions";
 
-function ServiceTile({ service, pending }: { service: ServiceStatus; pending?: IntegrationResult<SeerrRequest[]> }) {
+// One service with its stats, warnings and buttons. Also used under the
+// Proxmox guest the service runs on.
+export function ServiceTile({
+  service,
+  pending,
+}: {
+  service: ServiceStatus;
+  pending?: IntegrationResult<SeerrRequest[]>;
+}) {
   const { result } = service;
   const hasIssues = result.status === "ok" && result.data.issues.length > 0;
   const [tone, label] =
@@ -78,21 +88,48 @@ function ServiceTile({ service, pending }: { service: ServiceStatus; pending?: I
   );
 }
 
+// Shown on first load while the service answers (up to the request
+// timeout). Refreshes keep the old tile on screen instead.
+function ServiceTileFallback({ service }: { service: ServiceInfo }) {
+  return (
+    <Tile>
+      <span className="flex min-w-0 items-center gap-2">
+        <StatusDot tone="neutral" label="Loading" />
+        <span className="truncate text-base font-medium text-on-surface">{service.name}</span>
+      </span>
+      <div className="h-10 animate-pulse rounded-lg bg-surface-container-highest" />
+    </Tile>
+  );
+}
+
+async function LoadedServiceTile({ serviceKey }: { serviceKey: string }) {
+  const { status, pending } = await getServiceTile(serviceKey);
+  return status ? <ServiceTile service={status} pending={pending} /> : null;
+}
+
+// A service tile that streams in on its own, so one slow service delays
+// neither the other tiles nor the card around it.
+export function ServiceSlot({ service }: { service: ServiceInfo }) {
+  return (
+    <Suspense fallback={<ServiceTileFallback service={service} />}>
+      <LoadedServiceTile serviceKey={service.key} />
+    </Suspense>
+  );
+}
+
 export async function ServicesCard() {
-  // Only configured services are returned; the dashboard skips this card
-  // when there are none.
-  // In parallel: the request list must not wait for every tile's status.
-  const [statuses, seerrPending] = await Promise.all([getServiceStatuses(), getSeerrPendingRequests()]);
-  if (statuses.length === 0) return null;
-  // A down Seerr already shows its error; skip the list's own error then.
-  const seerrUp = statuses.some((service) => service.key === "seerr" && service.result.status === "ok");
-  const pending = seerrUp ? seerrPending : undefined;
+  // Services matched to a Proxmox guest show under that guest instead; this
+  // card keeps the rest and disappears when there are none. That is decided
+  // from placement alone, before any service answers, and placement waits
+  // at most briefly for Proxmox (getServicePlacement).
+  const { unplacedServices, servicesByGuest } = await getServicePlacement();
+  if (unplacedServices.length === 0) return null;
 
   return (
-    <Card title="Services">
+    <Card title="Services" subtitle={servicesByGuest.size > 0 ? "Not matched to a machine" : undefined}>
       <div className="grid grid-cols-1 gap-3 min-[480px]:grid-cols-2 lg:grid-cols-3">
-        {statuses.map((service) => (
-          <ServiceTile key={service.key} service={service} pending={service.key === "seerr" ? pending : undefined} />
+        {unplacedServices.map((service) => (
+          <ServiceSlot key={service.key} service={service} />
         ))}
       </div>
     </Card>

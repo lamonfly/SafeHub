@@ -53,6 +53,11 @@ services:
       # SEERR_API_KEY:
       # IMMICH_URL: http://192.168.1.20:2283
       # IMMICH_API_KEY:
+      # QBITTORRENT_URL: http://gluetun:8080
+      # QBITTORRENT_USERNAME:
+      # QBITTORRENT_PASSWORD:
+      # GLUETUN_URL: http://gluetun:8000
+      # GLUETUN_API_KEY:
 
       # Phone notifications via ntfy (topic: pick a long random name).
       # With the ntfy service below: NTFY_URL: http://ntfy, NTFY_TOPIC: safehub

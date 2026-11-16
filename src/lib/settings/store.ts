@@ -5,6 +5,7 @@ import { z } from "zod";
 import { db } from "@/db";
 import { setting } from "@/db/schema";
 import { env } from "@/lib/env";
+import { httpUrl } from "@/lib/url";
 import { settingFields, type FieldType } from "./definitions";
 
 // Effective integration settings: compose.yaml / .env first, then values
@@ -94,7 +95,7 @@ export function settingSource(key: string): "env" | "saved" | undefined {
 }
 
 const validators: Record<FieldType, z.ZodType<string>> = {
-  url: z.url().max(500),
+  url: httpUrl.pipe(z.string().max(500)),
   text: z.string().trim().min(1).max(500),
   secret: z.string().min(1).max(2000),
   flag: z.enum(["true"]),

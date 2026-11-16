@@ -21,8 +21,9 @@ export function ProxmoxConnectForm({ defaultUrl }: { defaultUrl?: string }) {
       </summary>
       <div className="flex flex-col gap-4 px-4 pb-4">
         <p className="text-sm text-on-surface-variant">
-          SafeHub logs in once, creates a user <code>safehub@pve</code> with its own API token and read-only
-          rights (plus start/stop if ticked), and saves the token. The password is not stored.
+          SafeHub logs in once, creates a user <code>safehub@pve</code> with its own API token, gives it read
+          access to everything (plus the PVEVMUser role if ticked: start/stop, but also console, backups and
+          CD-ROM changes on every guest), and saves the token. The password is not stored.
         </p>
         <form action={formAction} className="flex flex-col gap-4">
           <div className="grid gap-x-4 gap-y-5 pt-2 md:grid-cols-3">
@@ -42,11 +43,12 @@ export function ProxmoxConnectForm({ defaultUrl }: { defaultUrl?: string }) {
               name="username"
               required
               defaultValue="root@pam"
-              autoComplete="username"
+              // Not the SafeHub login: keep password managers from filling it in.
+              autoComplete="off"
               autoCapitalize="none"
               autoCorrect="off"
             />
-            <TextField label="Password" name="password" type="password" autoComplete="current-password" />
+            <TextField label="Password" name="password" type="password" autoComplete="new-password" />
           </div>
           <Checkbox name="allowControl" label="Allow start, shut down and reboot from SafeHub" defaultChecked />
           <div>

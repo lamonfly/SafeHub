@@ -1,5 +1,5 @@
 import "server-only";
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthPlugin } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, isAPIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
@@ -57,6 +57,19 @@ function signInKey(body: unknown): string {
   return typeof name === "string" ? name.trim().toLowerCase() : "";
 }
 
+// HTTP routes that stay reachable: reading and ending the own session, and
+// better-auth's health and error pages. Everything else answers 404.
+export const USED_HTTP_ROUTES = ["/get-session", "/sign-out", "/ok", "/error"];
+
+const onlyUsedRoutes = {
+  id: "safehub-only-used-routes",
+  async onRequest(request: Request) {
+    const path = new URL(request.url).pathname.replace(/^.*?\/api\/auth(?=\/|$)/, "").replace(/\/+$/, "");
+    if (USED_HTTP_ROUTES.includes(path)) return;
+    return { response: new Response("Not Found", { status: 404 }) };
+  },
+} satisfies BetterAuthPlugin;
+
 export const auth = betterAuth({
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
@@ -76,18 +89,49 @@ export const auth = betterAuth({
   // set BETTER_AUTH_URL=https://... to get Secure cookies behind HTTPS.
   // (Login runs through Server Actions, whose origin Next.js checks itself.)
   ...(env.BETTER_AUTH_URL ? {} : { advanced: { useSecureCookies: false } }),
-  // HTTP routes SafeHub does not use. Disabling them leaves auth.api calls
-  // working:
+  // HTTP routes. The browser never talks to better-auth directly: login,
+  // setup and logout are Server Actions calling auth.api, which these
+  // settings do not affect. Every HTTP route except the harmless ones in
+  // USED_HTTP_ROUTES answers 404 (see onlyUsedRoutes below), so routes for
+  // features SafeHub does not have (password change/reset, email, social
+  // accounts, session listing, user deletion ...) cannot be reached, even
+  // ones a future better-auth version adds. The list below is kept as well,
+  // naming the most sensitive ones explicitly:
   // - sign-up: accounts are only created by the setup Server Action
   // - email sign-in: emails are placeholders; login is by username
   // - username sign-in: the login Server Action is the only way in (it adds
   //   the password prefix)
   // - username availability: would let anyone probe which usernames exist
+  // - account changes: would bypass toStoredPassword() and the sign-in limits
   disabledPaths: [
     "/sign-up/email",
     "/sign-in/email",
     "/sign-in/username",
+    "/sign-in/social",
     "/is-username-available",
+    "/change-password",
+    "/set-password",
+    "/verify-password",
+    "/update-user",
+    "/change-email",
+    "/delete-user",
+    "/delete-user/callback",
+    "/reset-password",
+    "/request-password-reset",
+    "/forget-password",
+    "/verify-email",
+    "/send-verification-email",
+    "/link-social",
+    "/unlink-account",
+    "/list-accounts",
+    "/account-info",
+    "/refresh-token",
+    "/get-access-token",
+    "/update-session",
+    "/list-sessions",
+    "/revoke-session",
+    "/revoke-sessions",
+    "/revoke-other-sessions",
   ],
   hooks: {
     before: createAuthMiddleware(async (ctx) => {
@@ -126,6 +170,7 @@ export const auth = betterAuth({
     }),
   },
   plugins: [
+    onlyUsedRoutes,
     // Usernames: 3-30 characters, letters, digits, "_" and "."; stored lowercase.
     username({ displayUsername: false }),
     // Must be last so it can set cookies from Server Actions.

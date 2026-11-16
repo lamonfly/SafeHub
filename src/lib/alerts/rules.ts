@@ -5,6 +5,7 @@ import { alert, type Alert } from "@/db/schema";
 import type { Snapshot, Source } from "@/lib/metrics/collect";
 import { series } from "@/lib/metrics/series";
 import { hasValue, lastValues } from "@/lib/metrics/store";
+import { failureAlert } from "./failure";
 
 // Built-in alert rules, checked after every sample. Each rule opens an alert
 // when its condition holds and closes it once the value is clearly back to
@@ -12,13 +13,44 @@ import { hasValue, lastValues } from "@/lib/metrics/store";
 export const thresholds = {
   usage: { open: 90, close: 85, minutes: 5 }, // CPU / RAM, sustained
   volume: { warning: 85, critical: 95, close: 83 },
+  // Restarts by the restart policy within 15 minutes (see collect.ts).
+  crashLoop: { restarts: 3 },
+  // Samples in a row before qBittorrent's port vs the VPN's forwarded port
+  // alerts (Gluetun can take a moment to apply a new port).
+  portMismatch: { minutes: 3 },
 };
+
+// DSM disk and volume states. Only clearly bad ones alert: new, unused or
+// not yet initialized disks ("not_initialized", "initialized", "not_use")
+// and busy volumes ("data_scrubbing", "expanding" ...) are fine. Matched as
+// parts of the name, since DSM versions spell them differently
+// ("system_partition_failed", "degrade", "degraded"). A disk DSM only warns
+// about (SMART warning, "abnormal") is a warning, a failing one critical.
+const CRITICAL_DISK = /crash|fail|degrad|critical|damage|broken/i;
+const WARNING_DISK = /attention|warning|abnormal/i;
+const CRITICAL_VOLUME = /crash|fail|degrad|damage|broken/i;
+const WARNING_VOLUME = /attention|warning|abnormal|read_?only/i;
+
+export function diskSeverity(status: string): Severity | null {
+  if (CRITICAL_DISK.test(status)) return "critical";
+  if (WARNING_DISK.test(status)) return "warning";
+  return null;
+}
+
+export function volumeSeverity(status: string): Severity | null {
+  if (CRITICAL_VOLUME.test(status)) return "critical";
+  if (WARNING_VOLUME.test(status)) return "warning";
+  return null;
+}
 
 type Severity = Alert["severity"];
 
 // What changed in one round, for notifications.
 export type AlertEvent = {
   type: "opened" | "escalated" | "resolved";
+  key: string;
+  // Notifications for this alert are muted until then (null: not muted).
+  mutedUntil: Date | null;
   severity: Severity;
   title: string;
   message: string;
@@ -49,7 +81,15 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
 
   function resolve(existing: Alert) {
     db.update(alert).set({ endedAt: now }).where(eq(alert.id, existing.id)).run();
-    events.push({ type: "resolved", severity: existing.severity, title: existing.title, message: existing.message, startedAt: existing.startedAt });
+    events.push({
+      type: "resolved",
+      key: existing.key,
+      mutedUntil: existing.mutedUntil,
+      severity: existing.severity,
+      title: existing.title,
+      message: existing.message,
+      startedAt: existing.startedAt,
+    });
   }
 
   function apply(key: string, verdict: Verdict) {
@@ -72,7 +112,7 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
           startedAt: now,
         })
         .run();
-      events.push({ type: "opened", severity: verdict.severity, title: verdict.title, message: verdict.message, startedAt: now });
+      events.push({ type: "opened", key, mutedUntil: null, severity: verdict.severity, title: verdict.title, message: verdict.message, startedAt: now });
       return;
     }
     // Still a problem: keep the peak, escalate to critical, refresh the text.
@@ -89,7 +129,15 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
       .where(eq(alert.id, existing.id))
       .run();
     if (escalated) {
-      events.push({ type: "escalated", severity: "critical", title: verdict.title, message: verdict.message, startedAt: existing.startedAt });
+      events.push({
+        type: "escalated",
+        key,
+        mutedUntil: existing.mutedUntil,
+        severity: "critical",
+        title: verdict.title,
+        message: verdict.message,
+        startedAt: existing.startedAt,
+      });
     }
   }
 
@@ -123,10 +171,12 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
       // does not open and close (and notify) every few minutes.
       const lastTwo = lastValues(name, 2, now.getTime());
       const back = lastTwo.length === 2 && lastTwo.every((sample) => sample === 1);
+      // The title names the cause of the latest failure (login rejected,
+      // certificate changed ...); the key stays the series name.
       apply(
         name,
         down
-          ? { state: "open", severity: "critical", title: `${label}: unreachable`, message: `No answer for ${grace}+ minutes.`, unit: "" }
+          ? { state: "open", severity: "critical", ...failureAlert(label, grace, reading.failure), unit: "" }
           : back
             ? { state: "close" }
             : { state: "keep" },
@@ -165,17 +215,37 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
   }
 
   for (const disk of snapshot.disks) {
+    const severity = diskSeverity(disk.status);
     apply(
       disk.key,
-      disk.status === "normal"
-        ? { state: "close" }
-        : {
+      severity
+        ? {
             state: "open",
-            severity: "critical",
+            severity,
             title: `${disk.label}: ${disk.status}`,
             message: "Check the disk in DSM > Storage Manager.",
             unit: "",
-          },
+          }
+        : { state: "close" },
+    );
+  }
+
+  for (const volume of snapshot.volumes ?? []) {
+    const severity = volumeSeverity(volume.status);
+    apply(
+      volume.key,
+      severity
+        ? {
+            state: "open",
+            severity,
+            title: `${volume.label}: ${volume.status.replaceAll("_", " ")}`,
+            message:
+              severity === "critical"
+                ? "The storage pool lost redundancy or failed. Check DSM > Storage Manager before another disk fails."
+                : "DSM reports a problem with this volume. Check DSM > Storage Manager.",
+            unit: "",
+          }
+        : { state: "close" },
     );
   }
 
@@ -217,6 +287,32 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
       apply(downKey, { state: "close" });
     }
 
+    // Crash loop: the restart policy keeps restarting it. A container that
+    // crashes after half a minute is "running" in most samples, so the
+    // restart count tells, not the state. Unknown (undefined) only while it
+    // could have restarted within the window (see containerReadings), so an
+    // alert left open over a SafeHub restart still closes.
+    const loopKey = `docker:${container.name}:crash-loop`;
+    if (container.recentRestarts !== undefined) {
+      const restarts = container.recentRestarts;
+      apply(
+        loopKey,
+        restarts >= thresholds.crashLoop.restarts
+          ? {
+              state: "open",
+              severity: "warning",
+              title: `${container.name}: crash loop`,
+              message: `Restarted ${restarts} times in the last 15 minutes. Check its logs.`,
+              unit: "",
+            }
+          : restarts === 0
+            ? { state: "close" }
+            : { state: "keep" },
+      );
+    } else if (open.has(loopKey)) {
+      seen.add(loopKey); // nothing known about it this round
+    }
+
     const healthSeries = series.dockerHealth(container.name);
     const healthKey = `docker:${container.name}:unhealthy`;
     if (container.running) {
@@ -234,18 +330,48 @@ export function evaluateAlerts(snapshot: Snapshot, now: Date): AlertEvent[] {
     }
   }
 
+  // qBittorrent must listen on the port Gluetun forwards, or peers cannot
+  // connect (downloads slow, no seeding). Closes after two good samples, or
+  // when qBittorrent or Gluetun is removed from the settings.
+  const portKey = "qbittorrent:port-mismatch";
+  if (snapshot.portForward?.status === "not-configured") {
+    apply(portKey, { state: "close" });
+  } else if (snapshot.portForward?.status === "ok") {
+    const { minutes } = thresholds.portMismatch;
+    const recent = lastValues(series.portForward, minutes, t);
+    const mismatch = snapshot.portForward.mismatch;
+    apply(
+      portKey,
+      mismatch && recent.length === minutes && recent.every((sample) => sample === 0)
+        ? {
+            state: "open",
+            severity: "warning",
+            title: `qBittorrent listens on ${mismatch.listenPort}, VPN forwards ${mismatch.forwardedPort}`,
+            message: `Set qBittorrent's listening port to ${mismatch.forwardedPort} (Options > Connection), or let Gluetun update it automatically.`,
+            unit: "",
+          }
+        : recent.slice(0, 2).length === 2 && recent.slice(0, 2).every((sample) => sample === 1)
+          ? { state: "close" }
+          : { state: "keep" },
+    );
+  }
+
   // Alerts whose subject disappeared while its system answered (a guest was
   // stopped, a volume removed) are over. If the system itself is down its
   // "unreachable" alert covers it, so leave the rest open.
   for (const [key, existing] of open) {
     if (seen.has(key)) continue;
-    const source: Source | undefined = key.startsWith("synology:") || key.startsWith("disk:synology:")
+    const source: Source | undefined =
+      key.startsWith("synology:") || key.startsWith("disk:synology:") || key.startsWith("volume:synology:")
       ? "synology"
       : key.startsWith("node:") || key.startsWith("guest:") || key.startsWith("backup:") || key.startsWith("backup-job:")
         ? "proxmox"
         : key.startsWith("docker:")
           ? "docker"
           : undefined;
+    // A part of the round that failed outright tells nothing: keep its alerts.
+    const part = source ?? (key.startsWith("service:") ? "services" : undefined);
+    if (part && snapshot.failed?.has(part)) continue;
     // Synology / Proxmox removed from the settings: all of its alerts are over.
     if (source && snapshot.configured && !snapshot.configured.has(source)) {
       resolve(existing);

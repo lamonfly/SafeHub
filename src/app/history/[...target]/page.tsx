@@ -3,22 +3,23 @@ import { notFound } from "next/navigation";
 import { AppHeader, PageBody } from "@/components/app-header";
 import { HistoryChart } from "@/components/history/history-chart";
 import { Card } from "@/components/ui/card";
-import { getProxmoxOverview } from "@/lib/integrations/proxmox";
+import { getCachedProxmoxOverview } from "@/lib/integrations/proxmox";
+import { parseHistoryTarget } from "@/lib/metrics/history-target";
 import { series } from "@/lib/metrics/series";
 import { knownSeries, rangeNames, readSeries, type Range } from "@/lib/metrics/store";
 import { requireSession } from "@/lib/session";
 
-// History charts for one machine:
-//   /history/synology
-//   /history/node/<node>
-//   /history/guest/<node>/<vmid>
+// History charts for one machine or container (paths: lib/metrics/history-target.ts).
 // ?range=24h|7d|30d|90d
 
-type Chart = { series: string; title: string };
+type Chart = { series: string; title: string; subtitle?: string };
 
-async function describe(target: string[]): Promise<{ title: string; charts: Chart[] } | null> {
-  const [kind, node, vmid] = target;
-  if (kind === "synology" && target.length === 1) {
+const DEFAULT_SUBTITLE = "Average (filled) and peak (dashed)";
+
+async function describe(segments: string[]): Promise<{ title: string; charts: Chart[] } | null> {
+  const target = parseHistoryTarget(segments);
+  if (!target) return null;
+  if (target.kind === "synology") {
     const volumes = knownSeries(series.synologyVolume(""));
     return {
       title: "Synology",
@@ -29,7 +30,8 @@ async function describe(target: string[]): Promise<{ title: string; charts: Char
       ],
     };
   }
-  if (kind === "node" && node && target.length === 2) {
+  if (target.kind === "node") {
+    const { node } = target;
     return {
       title: `Proxmox node ${node}`,
       charts: [
@@ -38,19 +40,26 @@ async function describe(target: string[]): Promise<{ title: string; charts: Char
       ],
     };
   }
-  if (kind === "guest" && node && /^\d+$/.test(vmid ?? "") && target.length === 3) {
-    const id = Number(vmid);
-    const overview = await getProxmoxOverview();
-    const guest = overview.status === "ok" ? overview.data.guests.find((g) => g.node === node && g.vmid === id) : undefined;
+  if (target.kind === "docker") {
+    const { name } = target;
     return {
-      title: guest?.name ? `${guest.name} (${guest.type === "qemu" ? "VM" : "LXC"} ${id})` : `Guest ${id}`,
+      title: `${name} (container)`,
       charts: [
-        { series: series.guestCpu(node, id), title: "CPU" },
-        { series: series.guestRam(node, id), title: "Memory" },
+        { series: series.dockerCpu(name), title: "CPU", subtitle: `Share of the whole host (all cores = 100%). ${DEFAULT_SUBTITLE}` },
+        { series: series.dockerMemory(name), title: "Memory", subtitle: `Without page cache, of its limit or the host's memory. ${DEFAULT_SUBTITLE}` },
       ],
     };
   }
-  return null;
+  const { node, vmid: id } = target;
+  const overview = await getCachedProxmoxOverview();
+  const guest = overview.status === "ok" ? overview.data.guests.find((g) => g.node === node && g.vmid === id) : undefined;
+  return {
+    title: guest?.name ? `${guest.name} (${guest.type === "qemu" ? "VM" : "LXC"} ${id})` : `Guest ${id}`,
+    charts: [
+      { series: series.guestCpu(node, id), title: "CPU" },
+      { series: series.guestRam(node, id), title: "Memory" },
+    ],
+  };
 }
 
 export default async function HistoryPage({ params, searchParams }: PageProps<"/history/[...target]">) {
@@ -75,7 +84,11 @@ export default async function HistoryPage({ params, searchParams }: PageProps<"/
       <PageBody>
         <div className="flex flex-wrap items-end justify-between gap-3 px-1">
           <div>
-            <Link href="/" className="text-sm text-primary hover:underline">
+            {/* after: extends the tap area to 48 px without moving the layout */}
+            <Link
+              href="/"
+              className="relative inline-flex items-center text-sm text-primary after:absolute after:-inset-x-2 after:top-1/2 after:h-12 after:-translate-y-1/2 after:content-[''] hover:underline"
+            >
               ← Dashboard
             </Link>
             <h1 className="text-[28px] leading-9 text-on-surface">{description.title}</h1>
@@ -87,7 +100,7 @@ export default async function HistoryPage({ params, searchParams }: PageProps<"/
                 key={name}
                 href={`?range=${name}`}
                 aria-current={name === range ? "page" : undefined}
-                className={`flex min-h-10 min-w-14 items-center justify-center border-r border-outline px-3 text-sm font-medium last:border-r-0 ${
+                className={`flex min-h-12 min-w-14 sm:min-h-10 items-center justify-center border-r border-outline px-3 text-sm font-medium last:border-r-0 ${
                   name === range ? "bg-secondary-container text-on-secondary-container" : "text-on-surface hover:bg-on-surface/8"
                 }`}
               >
@@ -97,7 +110,7 @@ export default async function HistoryPage({ params, searchParams }: PageProps<"/
           </nav>
         </div>
         {description.charts.map((chart) => (
-          <Card key={chart.series} title={chart.title} subtitle="Average (filled) and peak (dashed)">
+          <Card key={chart.series} title={chart.title} subtitle={chart.subtitle ?? DEFAULT_SUBTITLE}>
             <HistoryChart points={data.get(chart.series) ?? []} longRange={range !== "24h"} />
           </Card>
         ))}

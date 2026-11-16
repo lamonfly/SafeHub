@@ -46,6 +46,60 @@ describe("createHttpClient", () => {
   });
 });
 
+describe("redirects", () => {
+  // A login portal on another host: it must never see the API key.
+  const portalRequests: { url: string; key?: string }[] = [];
+  let portal: Awaited<ReturnType<typeof startHttp>>;
+  let guarded: Awaited<ReturnType<typeof startHttp>>;
+  // Same host name as the service, other port (like http -> https).
+  let movedToOtherPort: Awaited<ReturnType<typeof startHttp>>;
+  const portalHost = () => portal.url.replace("127.0.0.1", "localhost");
+  beforeAll(async () => {
+    portal = await startHttp((request, _body, response) => {
+      portalRequests.push({ url: request.url!, key: request.headers["x-api-key"] as string | undefined });
+      return json(response, { ok: true });
+    });
+    guarded = await startHttp((_request, _body, response) => {
+      response.writeHead(302, { Location: `${portalHost()}/login?rd=secret-query` });
+      response.end();
+    });
+    movedToOtherPort = await startHttp((request, _body, response) => {
+      response.writeHead(308, { Location: `${portal.url}${request.url}` });
+      response.end();
+    });
+  });
+  afterAll(async () => {
+    await portal.close();
+    await guarded.close();
+    await movedToOtherPort.close();
+  });
+
+  it.each(["GET", "POST"])("refuses a %s redirect to another origin without sending the key there", async (method) => {
+    const client = createHttpClient({ name: "Sonarr", baseUrl: guarded.url, headers: { "X-Api-Key": "the-key" } });
+    const result = await attempt(() =>
+      method === "GET" ? client.get("api/v3/system/status", z.object({})) : client.post("api/v3/command", z.object({}), {}),
+    );
+    expect(result.status).toBe("error");
+    const message = result.status === "error" ? result.message : "";
+    expect(message).toContain(`redirected to ${portalHost()}`);
+    expect(message).toContain("login portal");
+    expect(message).not.toContain("secret-query");
+    expect(portalRequests).toEqual([]);
+  });
+
+  it.each(["GET", "POST"])("names the new address when a %s redirect stays on the same host", async (method) => {
+    const client = createHttpClient({ name: "Sonarr", baseUrl: movedToOtherPort.url, headers: { "X-Api-Key": "the-key" } });
+    const result = await attempt(() =>
+      method === "GET" ? client.get("api/v3/system/status", z.object({})) : client.post("api/v3/command", z.object({}), {}),
+    );
+    expect(result).toEqual({
+      status: "error",
+      message: `Sonarr redirected to ${portal.url}. Use that address in the settings.`,
+    });
+    expect(portalRequests).toEqual([]);
+  });
+});
+
 describe("normalizeJellyfinUrl", () => {
   it.each([
     ["http://192.168.0.5:8096/web/#/home", "http://192.168.0.5:8096/"],

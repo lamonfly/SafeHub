@@ -57,6 +57,25 @@ export const settingGroups: SettingGroup[] = [
   { id: "jellyfin", title: "Jellyfin", fields: urlAndKey("JELLYFIN", 8096, "Dashboard > API Keys") },
   { id: "immich", title: "Immich", fields: urlAndKey("IMMICH", 2283, "Account Settings > API Keys, admin for stats") },
   {
+    id: "qbittorrent",
+    title: "qBittorrent",
+    help: "Web UI address. Behind Gluetun, use the Gluetun container's name (http://gluetun:8080). Leave the login empty if qBittorrent skips authentication for SafeHub's subnet.",
+    fields: [
+      { key: "QBITTORRENT_URL", label: "URL", type: "url", placeholder: "http://gluetun:8080" },
+      { key: "QBITTORRENT_USERNAME", label: "Username", type: "text" },
+      { key: "QBITTORRENT_PASSWORD", label: "Password", type: "secret" },
+    ],
+  },
+  {
+    id: "gluetun",
+    title: "Gluetun",
+    help: "VPN status from Gluetun's control server (port 8000). Since Gluetun 3.40 it needs an API key role, see the README.",
+    fields: [
+      { key: "GLUETUN_URL", label: "Control server URL", type: "url", placeholder: "http://gluetun:8000" },
+      { key: "GLUETUN_API_KEY", label: "API key", type: "secret" },
+    ],
+  },
+  {
     id: "notifications",
     title: "Notifications",
     help: "Alerts as push notifications through ntfy. Install the ntfy app, subscribe to the same topic, and pick a long random topic name: on ntfy.sh anyone who knows it can read the messages.",

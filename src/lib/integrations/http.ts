@@ -1,8 +1,49 @@
 import "server-only";
-import { fetch, type Agent } from "undici";
+import { fetch, type Agent, type RequestInit, type Response } from "undici";
 import { z } from "zod";
 
 const TIMEOUT_MS = 5_000;
+const MAX_REDIRECTS = 5;
+
+// fetch without automatic redirects. fetch would send the custom key headers
+// (X-Api-Key, Authorization) along to wherever a redirect points, e.g. a
+// login portal (Authelia, Authentik) on another host. Redirects within the
+// same origin are followed for GET (a missing URL base sends Jellyfin to its
+// web UI); any other redirect is an error that names only the target origin.
+// Also used for logins (Proxmox wizard, DSM): a POST is never redirected, so
+// a password never goes to a redirect target.
+export async function fetchWithoutLeaks(
+  name: string,
+  url: URL,
+  init: RequestInit,
+): Promise<{ response: Response; url: URL; redirected: boolean }> {
+  let current = url;
+  for (let hop = 0; ; hop++) {
+    const response = await fetch(current, { ...init, redirect: "manual" });
+    if (response.status < 300 || response.status > 399 || response.status === 304) {
+      return { response, url: current, redirected: hop > 0 };
+    }
+    await response.body?.cancel();
+    const location = response.headers.get("location");
+    if (!location) throw new Error(`${name} ${response.status} ${response.statusText}`.trim());
+    const target = new URL(location, current);
+    if (target.origin !== current.origin) {
+      // Same host, other scheme or port (usually http -> https): still not
+      // followed, since the headers would go to another origin, but the fix
+      // is simply the address it points to.
+      if (target.hostname === current.hostname) {
+        throw new Error(`${name} redirected to ${target.origin}. Use that address in the settings.`);
+      }
+      throw new Error(
+        `${name} redirected to ${target.origin}. Is a login portal in front of the service? Use an address that reaches the service directly.`,
+      );
+    }
+    if ((init.method ?? "GET") !== "GET" || hop >= MAX_REDIRECTS) {
+      throw new Error(`${name} redirected to ${target.origin}${target.pathname}. Check the URL.`);
+    }
+    current = target;
+  }
+}
 
 export type RequestOptions = {
   // Error statuses whose JSON body is still the answer, e.g. 400 from the
@@ -37,7 +78,7 @@ export function createHttpClient(options: {
     body?: unknown,
     requestOptions: RequestOptions = {},
   ) {
-    const response = await fetch(new URL(path, baseUrl), {
+    const { response, url, redirected } = await fetchWithoutLeaks(options.name, new URL(path, baseUrl), {
       method,
       headers: {
         Accept: "application/json",
@@ -62,8 +103,8 @@ export function createHttpClient(options: {
     const contentType = response.headers.get("content-type") ?? "";
     if (contentType.includes("text/html")) {
       // Where the request ended up tells the cause: a /web/ path means a
-      // missing URL base, another host means a login page in front.
-      const landed = response.redirected ? ` (redirected to ${response.url})` : "";
+      // missing URL base. (Another host is refused before this point.)
+      const landed = redirected ? ` (redirected to ${url.origin}${url.pathname})` : "";
       await response.body?.cancel();
       throw new Error(
         `${options.name} answered with a web page instead of API data${landed}. Check the URL: use the server address including any URL base (e.g. http://192.168.1.20:8096 or .../jellyfin), not a page of its web interface or a login page in front of it.`,
@@ -86,6 +127,8 @@ export type ServiceAction = {
   label: string;
   // Set for heavy actions: shown in a confirmation dialog first.
   confirm?: string;
+  // Only offered while this returns true (e.g. needs another integration).
+  available?: () => boolean;
   run: (client: HttpClient) => Promise<string | void>;
 };
 

@@ -17,7 +17,15 @@ if [ "$(id -u)" = "0" ]; then
   GROUPS_ARG="--clear-groups"
   SOCKET="${DOCKER_SOCKET:-/var/run/docker.sock}"
   if [ -S "$SOCKET" ]; then
-    GROUPS_ARG="--groups=$(stat -c %g "$SOCKET")"
+    SOCKET_GID="$(stat -c %g "$SOCKET")"
+    if [ "$SOCKET_GID" = "0" ]; then
+      # Group 0 is root's group: joining it would give SafeHub access to
+      # every root-group file in the container. Leave Docker off instead.
+      echo "Warning: $SOCKET belongs to group 0 (root), so SafeHub does not join it and cannot use it: Docker stays hidden (Check setup shows this too)." >&2
+      echo "  Give the socket a non-root group on the host, e.g. 'sudo chgrp docker /var/run/docker.sock' (on Synology, create the group first: 'sudo synogroup --add docker'), then restart SafeHub." >&2
+    else
+      GROUPS_ARG="--groups=$SOCKET_GID"
+    fi
   fi
   exec setpriv --reuid="$PUID" --regid="$PGID" "$GROUPS_ARG" -- "$@"
 fi

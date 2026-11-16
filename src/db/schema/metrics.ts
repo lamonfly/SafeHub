@@ -42,8 +42,22 @@ export const alert = sqliteTable(
     startedAt: integer("started_at", { mode: "timestamp_ms" }).notNull(),
     endedAt: integer("ended_at", { mode: "timestamp_ms" }),
     readAt: integer("read_at", { mode: "timestamp_ms" }),
+    // Notifications for this alert are muted until then; it is still
+    // recorded and listed. ALERT_MUTED_UNTIL_RESOLVED: until it closes.
+    mutedUntil: integer("muted_until", { mode: "timestamp_ms" }),
   },
   (table) => [index("alert_key_idx").on(table.key), index("alert_started_idx").on(table.startedAt)],
 );
 
 export type Alert = typeof alert.$inferSelect;
+
+// Far future: an alert muted "until resolved" (a new alert for the same
+// problem is a new row and notifies again).
+export const ALERT_MUTED_UNTIL_RESOLVED = new Date(Date.UTC(9999, 0, 1));
+
+// Planned maintenance: no notifications at all until "until". At most one
+// row (id 1); removed when cancelled.
+export const notificationPause = sqliteTable("notification_pause", {
+  id: integer("id").primaryKey(),
+  until: integer("until", { mode: "timestamp_ms" }).notNull(),
+});

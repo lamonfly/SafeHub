@@ -72,4 +72,26 @@ describe("Synology", () => {
     expect(third.status === "error" && third.message).toContain("Next attempt in 5 min");
     expect(logins).toBe(1);
   });
+
+  it("never sends the password or session to a redirect target", async () => {
+    const received: string[] = [];
+    const elsewhere = await startHttp((request, body, response) => {
+      received.push(`${request.url} ${body}`);
+      json(response, { success: true, data: { sid: "stolen" } });
+    });
+    const redirecting = await startHttp((request, _body, response) => {
+      response.writeHead(307, { Location: `${elsewhere.url}${request.url}` });
+      response.end();
+    });
+    try {
+      store.saveSettings({ SYNOLOGY_URL: redirecting.url, SYNOLOGY_PASSWORD: "right" });
+      const result = await synology.getSynologyOverview();
+      expect(result.status).toBe("error");
+      expect(result.status === "error" && result.message).toContain("redirected to");
+      expect(received).toEqual([]);
+    } finally {
+      await redirecting.close();
+      await elsewhere.close();
+    }
+  });
 });

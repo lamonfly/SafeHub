@@ -66,6 +66,18 @@ describe("volume alerts", () => {
     expect(find("synology:volume:/volume1")?.endedAt).toBeInstanceOf(Date);
   });
 
+  it("keep a muted alert muted when it escalates", () => {
+    const vol = (value: number): Reading => ({ ...volume(value), series: "synology:volume:/volume9" });
+    step([vol(86)]);
+    const id = find("synology:volume:/volume9")!.id;
+    expect(store.muteAlert(id, "1h", clock)).toBe(true);
+    metrics.saveSamples(clock, [{ series: "synology:volume:/volume9", value: 97 }]);
+    const events = rules.evaluateAlerts({ readings: [vol(97)], disks: [], reachable: new Set<Source>(["synology"]) }, new Date(clock));
+    clock += MINUTE;
+    expect(events).toMatchObject([{ type: "escalated", key: "synology:volume:/volume9", mutedUntil: new Date(clock - MINUTE + 3_600_000) }]);
+    step([vol(10)]);
+  });
+
   it("close when Synology is removed from the settings", () => {
     step([volume(97)]);
     expect(find("synology:volume:/volume1")?.endedAt).toBeNull();
@@ -96,6 +108,38 @@ describe("availability alerts", () => {
     expect(find("service:sonarr:up")?.endedAt).toBeInstanceOf(Date);
   });
 
+  it("name the cause: login rejected, certificate changed, API changed, VPN down", () => {
+    const failing = (key: string, failure: Reading["failure"]): Reading => ({ ...up(key, 0), failure });
+    const login = { reason: "login rejected" as const, detail: "Sonarr 401 Unauthorized" };
+    step([failing("sonarr2", login)]);
+    step([failing("sonarr2", login)]);
+    expect(step([failing("sonarr2", login)])).toEqual(["opened critical sonarr2: login rejected"]);
+    expect(find("service:sonarr2:up")?.message).toBe("For 3+ minutes. Sonarr 401 Unauthorized.");
+    // A different cause later: same alert (same key and history), new text.
+    step([failing("sonarr2", { reason: "unreachable", detail: "Request timed out." })]);
+    expect(find("service:sonarr2:up")).toMatchObject({
+      title: "sonarr2: unreachable",
+      message: "No answer for 3+ minutes. Request timed out.",
+      endedAt: null,
+    });
+    step([up("sonarr2", 1)]);
+    step([up("sonarr2", 1)]);
+    expect(find("service:sonarr2:up")?.endedAt).toBeInstanceOf(Date);
+  });
+
+  it("keep service alerts when the services part of the round failed", () => {
+    for (let minute = 0; minute < 3; minute++) step([up("lidarr", 0)]);
+    const events = rules.evaluateAlerts(
+      { readings: [], disks: [], reachable: new Set<Source>(["synology", "proxmox"]), configured: new Set<Source>(["synology", "proxmox"]), failed: new Set(["services"]) },
+      new Date(clock),
+    );
+    clock += MINUTE;
+    expect(events).toEqual([]);
+    expect(find("service:lidarr:up")?.endedAt).toBeNull();
+    step([]); // services answered again, lidarr is gone from the settings
+    expect(find("service:lidarr:up")?.endedAt).toBeInstanceOf(Date);
+  });
+
   it("close when the service is removed from the settings", () => {
     for (let minute = 0; minute < 3; minute++) step([up("caddy", 0)]);
     expect(find("service:caddy:up")?.endedAt).toBeNull();
@@ -106,10 +150,44 @@ describe("availability alerts", () => {
 
 describe("disk and guest alerts", () => {
   it("flag unhealthy disks until they are normal again", () => {
-    step([], [{ key: "disk:synology:Drive 3", label: "Synology Drive 3", status: "warning" }]);
-    expect(find("disk:synology:Drive 3")?.severity).toBe("critical");
-    step([], [{ key: "disk:synology:Drive 3", label: "Synology Drive 3", status: "normal" }]);
+    const drive = (status: string) => [{ key: "disk:synology:Drive 3", label: "Synology Drive 3", status }];
+    expect(step([], drive("warning"))).toEqual(["opened warning Synology Drive 3: warning"]);
+    expect(step([], drive("crashed"))).toEqual(["escalated critical Synology Drive 3: crashed"]);
+    expect(step([], drive("normal"))).toEqual(["resolved critical Synology Drive 3: crashed"]);
     expect(find("disk:synology:Drive 3")?.endedAt).toBeInstanceOf(Date);
+  });
+
+  it("ignore new and unused disks, alert on failing ones", () => {
+    for (const status of ["not_initialized", "initialized", "not_use", "normal", "unknown"]) {
+      step([], [{ key: "disk:synology:Drive 5", label: "Synology Drive 5", status }]);
+      expect(find("disk:synology:Drive 5")).toBeUndefined();
+    }
+    for (const status of ["crashed", "failing", "system_partition_failed", "degraded", "critical"]) {
+      expect(rules.diskSeverity(status)).toBe("critical");
+    }
+    for (const status of ["warning", "abnormal", "attention"]) {
+      expect(rules.diskSeverity(status)).toBe("warning");
+    }
+  });
+
+  it("alert on degraded or crashed volumes", () => {
+    const volumeRound = (status: string, reachable: Source[] = ["synology", "proxmox"]) => {
+      const events = rules.evaluateAlerts(
+        { readings: [], disks: [], volumes: status ? [{ key: "volume:synology:Volume 1", label: "Synology Volume 1", status }] : [], reachable: new Set(reachable), configured: new Set<Source>(["synology", "proxmox"]) },
+        new Date(clock),
+      );
+      clock += MINUTE;
+      return events.map((item) => `${item.type} ${item.severity} ${item.title}`);
+    };
+    expect(volumeRound("data_scrubbing")).toEqual([]);
+    expect(volumeRound("attention")).toEqual(["opened warning Synology Volume 1: attention"]);
+    expect(volumeRound("degraded")).toEqual(["escalated critical Synology Volume 1: degraded"]);
+    expect(volumeRound("", ["proxmox"])).toEqual([]); // Synology unreachable: keep
+    expect(volumeRound("normal")).toEqual(["resolved critical Synology Volume 1: degraded"]);
+    expect(volumeRound("crashed")).toEqual(["opened critical Synology Volume 1: crashed"]);
+    expect(volumeRound("")).toEqual(["resolved critical Synology Volume 1: crashed"]); // volume removed
+    expect(rules.volumeSeverity("read_only")).toBe("warning");
+    expect(rules.volumeSeverity("expanding")).toBeNull();
   });
 
   it("close a guest's alert when the guest stops, but only while Proxmox answers", () => {
@@ -154,8 +232,11 @@ describe("Docker container alerts", () => {
     id: "a".repeat(64), name: "sonarr", image: "sonarr", state, status, exitCode, ports: [], self: false,
   });
   // One sampler round with only this container.
-  function dockerStep(item: Container) {
-    const { readings, containers } = collect.containerReadings([item]);
+  function dockerStep(item: Container, recentRestarts?: number) {
+    const { readings, containers } = collect.containerReadings(
+      [item],
+      recentRestarts === undefined ? undefined : new Map([[item.name, recentRestarts]]),
+    );
     metrics.saveSamples(clock, readings.map(({ series, value }) => ({ series, value })));
     const events = rules.evaluateAlerts(
       { readings, disks: [], containers, reachable: new Set<Source>(["docker"]), configured: new Set<Source>(["docker"]) },
@@ -204,11 +285,64 @@ describe("Docker container alerts", () => {
     dockerStep(running);
   });
 
+  it("warn about a crash loop while the container looks running", () => {
+    const fresh = container("running", "Up 40 seconds");
+    expect(dockerStep(fresh, 0)).toEqual([]);
+    expect(dockerStep(fresh, 2)).toEqual([]);
+    expect(dockerStep(fresh, 3)).toEqual(["opened warning sonarr: crash loop"]);
+    expect(find("docker:sonarr:crash-loop")?.message).toBe("Restarted 3 times in the last 15 minutes. Check its logs.");
+    // Not inspected this round and up for less than the window: nothing known.
+    expect(dockerStep(container("running", "Up 5 minutes"))).toEqual([]);
+    expect(dockerStep(running, 1)).toEqual([]); // fewer restarts, but not quiet yet
+    expect(dockerStep(running, 0)).toEqual(["resolved warning sonarr: crash loop"]);
+  });
+
+  it("close a crash loop alert after a SafeHub restart once the container is stable", () => {
+    const fresh = container("running", "Up 40 seconds");
+    dockerStep(fresh, 0);
+    expect(dockerStep(fresh, 3)).toEqual(["opened warning sonarr: crash loop"]);
+    // SafeHub restarted: empty restart history, the container is not inspected.
+    expect(dockerStep(container("running", "Up 10 minutes"))).toEqual([]);
+    expect(find("docker:sonarr:crash-loop")?.endedAt).toBeNull();
+    expect(dockerStep(container("running", "Up 16 minutes"))).toEqual(["resolved warning sonarr: crash loop"]);
+    // Also when it was stopped on purpose.
+    dockerStep(fresh, 0);
+    expect(dockerStep(fresh, 3)).toEqual(["opened warning sonarr: crash loop"]);
+    expect(dockerStep(container("exited", "Exited (0) 1 second ago", 0))).toEqual(["resolved warning sonarr: crash loop"]);
+  });
+
   it("ignore a container that was never seen running", () => {
     const other = { ...crashed, name: "old-thing" };
     dockerStep(other);
     dockerStep(other);
     expect(dockerStep(other)).toEqual([]);
+  });
+});
+
+describe("qBittorrent port forwarding", () => {
+  const mismatch = { forwardedPort: 51413, listenPort: 6881 };
+  function portStep(portForward: Snapshot["portForward"]) {
+    const readings: Reading[] =
+      portForward?.status === "ok" ? [{ series: "qbittorrent:port-forward", value: portForward.mismatch ? 0 : 1, kind: "flag", label: "qBittorrent" }] : [];
+    metrics.saveSamples(clock, readings.map(({ series, value }) => ({ series, value })));
+    const events = rules.evaluateAlerts({ readings, disks: [], reachable: new Set<Source>(), portForward }, new Date(clock));
+    clock += MINUTE;
+    return events.map((item) => `${item.type} ${item.severity} ${item.title}`);
+  }
+
+  it("warn after 3 mismatching samples, keep without data, close after 2 good ones", () => {
+    expect(portStep({ status: "ok", mismatch })).toEqual([]);
+    expect(portStep({ status: "ok", mismatch })).toEqual([]);
+    expect(portStep({ status: "ok", mismatch })).toEqual(["opened warning qBittorrent listens on 6881, VPN forwards 51413"]);
+    expect(portStep(undefined)).toEqual([]); // check failed this round
+    expect(portStep({ status: "ok", mismatch: null })).toEqual([]);
+    expect(portStep({ status: "ok", mismatch: null })).toEqual(["resolved warning qBittorrent listens on 6881, VPN forwards 51413"]);
+  });
+
+  it("close when qBittorrent or Gluetun is removed from the settings", () => {
+    for (let minute = 0; minute < 3; minute++) portStep({ status: "ok", mismatch });
+    expect(find("qbittorrent:port-mismatch")?.endedAt).toBeNull();
+    expect(portStep({ status: "not-configured" })).toEqual(["resolved warning qBittorrent listens on 6881, VPN forwards 51413"]);
   });
 });
 

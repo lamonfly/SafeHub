@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 import type { HttpClient } from "../http";
-import { fetchBackupInfo } from "./backups";
+import { BACKUP_RETRY_MS, BACKUP_WAIT_MS, createBackupReader, fetchBackupInfo, type BackupInfo } from "./backups";
 
 // Answers like the Proxmox API ({ data }), by path.
 function fakeClient(responses: Record<string, unknown>): HttpClient & { paths: string[] } {
@@ -78,5 +78,81 @@ describe("fetchBackupInfo", () => {
     const info = await fetchBackupInfo(client, ["pve"]);
     expect(info.jobs).toEqual([{ node: "pve", ok: false, status: "job errors", endedAt: 40_000 }]);
     expect(info.lastBackup).toEqual({});
+  });
+});
+
+describe("createBackupReader", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const info = (vmid: number): BackupInfo => ({ lastBackup: { [vmid]: 1 }, storages: [], failedStorages: [], jobs: [] });
+  const minutes = (count: number) => vi.advanceTimersByTimeAsync(count * 60_000);
+
+  // A fetch the test answers by hand.
+  function controlledFetch() {
+    const calls: { resolve: (value: BackupInfo) => void; reject: (error: Error) => void }[] = [];
+    const fetchInfo = vi.fn(
+      () => new Promise<BackupInfo>((resolve, reject) => calls.push({ resolve, reject })),
+    );
+    return { fetchInfo, calls };
+  }
+
+  it("waits at most 1.5 s for a slow listing, then uses its result once it arrives", async () => {
+    const { fetchInfo, calls } = controlledFetch();
+    const read = createBackupReader(fetchInfo);
+
+    const first = read(["pve"]);
+    await vi.advanceTimersByTimeAsync(BACKUP_WAIT_MS);
+    expect(await first).toBeNull();
+
+    calls[0].resolve(info(101));
+    await vi.advanceTimersByTimeAsync(0);
+    // Cached: answered at once, no new listing.
+    expect(await read(["pve"])).toEqual(info(101));
+    expect(fetchInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry a failed listing for 3 minutes", async () => {
+    const { fetchInfo, calls } = controlledFetch();
+    const read = createBackupReader(fetchInfo);
+
+    const first = read(["pve"]);
+    calls[0].reject(new Error("permission denied"));
+    expect(await first).toBeNull();
+
+    await minutes(2);
+    expect(await read(["pve"])).toBeNull();
+    expect(fetchInfo).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(BACKUP_RETRY_MS - 2 * 60_000);
+    const retried = read(["pve"]);
+    expect(fetchInfo).toHaveBeenCalledTimes(2);
+    calls[1].resolve(info(102));
+    expect(await retried).toEqual(info(102));
+  });
+
+  it("keeps the last result while listings fail, but not once it is older than 20 minutes", async () => {
+    const { fetchInfo, calls } = controlledFetch();
+    const read = createBackupReader(fetchInfo);
+
+    const first = read(["pve"]);
+    calls[0].resolve(info(101));
+    expect(await first).toEqual(info(101));
+
+    // Cache expired after 10 min, the new listing fails: last result stays.
+    await minutes(11);
+    const failing = read(["pve"]);
+    calls[1].reject(new Error("timeout"));
+    expect(await failing).toEqual(info(101));
+
+    // Still failing at 19 min: 19 min old, still shown.
+    await minutes(8);
+    const again = read(["pve"]);
+    calls[2].reject(new Error("timeout"));
+    expect(await again).toEqual(info(101));
+
+    // 21 min old: no backup data rather than stale data.
+    await minutes(2);
+    expect(await read(["pve"])).toBeNull();
   });
 });

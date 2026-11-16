@@ -124,11 +124,15 @@ export function readSeries(series: string[], range: Range, now = Date.now()): Ma
 }
 
 // Series names starting with a prefix that have any history (e.g. all
-// Synology volumes).
+// Synology volumes). A range on the primary key instead of LIKE: LIKE cannot
+// use the BINARY index (full table scan), ignores case and treats % and _ in
+// names as wildcards. U+10FFFF is the highest code point, so every name that
+// starts with the prefix sorts below prefix + U+10FFFF.
 export function knownSeries(prefix: string): string[] {
+  const end = `${prefix}${String.fromCodePoint(0x10ffff)}`;
   const rows = db.all<{ series: string }>(sql`
-    SELECT series FROM metric_sample WHERE series LIKE ${`${prefix}%`}
-    UNION SELECT series FROM metric_hourly WHERE series LIKE ${`${prefix}%`}
+    SELECT DISTINCT series FROM metric_sample WHERE series >= ${prefix} AND series < ${end}
+    UNION SELECT DISTINCT series FROM metric_hourly WHERE series >= ${prefix} AND series < ${end}
   `);
   return rows.map((row) => row.series).sort();
 }

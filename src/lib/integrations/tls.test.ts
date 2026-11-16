@@ -37,7 +37,14 @@ describe("certificate pinning", () => {
     expect(details?.pinId).toBe(`proxmox@localhost:${server.port}`);
 
     expect(tls.acceptCertificate(details!.pinId, "not-a-fingerprint")).toBe(false);
+    // Only the certificate the service presented can be pinned, not any
+    // well-formed fingerprint a request sends.
+    const other = "AB:".repeat(31) + "AB";
+    expect(tls.acceptCertificate(details!.pinId, other)).toBe(false);
+    expect(tls.acceptCertificate("proxmox@elsewhere:8006", details!.fingerprint)).toBe(false);
     expect(tls.acceptCertificate(details!.pinId, details!.fingerprint)).toBe(true);
+    // Used up: accepting again needs a new mismatch.
+    expect(tls.acceptCertificate(details!.pinId, details!.fingerprint)).toBe(false);
     expect((await proxmox.getProxmoxOverview()).status).toBe("ok");
   });
 

@@ -8,6 +8,7 @@ import { sendTestNotification } from "@/lib/notifications/ntfy";
 import { settingGroups } from "@/lib/settings/definitions";
 import { saveSettings, settingSource, SettingValidationError } from "@/lib/settings/store";
 import { requireSession } from "@/lib/session";
+import { httpUrl } from "@/lib/url";
 
 export type SettingsState = {
   error?: string;
@@ -33,8 +34,16 @@ export async function saveGroupAction(_state: SettingsState, formData: FormData)
       changes[field.key] = formData.get(field.key) === "on" ? "true" : null;
       continue;
     }
-    const value = String(formData.get(field.key) ?? "").trim();
-    if (field.type === "secret" && value === "") continue;
+    const raw = String(formData.get(field.key) ?? "");
+    if (field.type === "secret") {
+      // Empty or only spaces: keep the saved secret (a stray space must not
+      // replace it). Otherwise kept exactly as typed: spaces can be part of
+      // a password.
+      if (raw.trim() === "") continue;
+      changes[field.key] = raw;
+      continue;
+    }
+    const value = raw.trim();
     changes[field.key] = value === "" ? null : value;
   }
 
@@ -58,7 +67,7 @@ export async function clearGroupAction(groupId: string): Promise<SettingsState> 
 }
 
 const connectSchema = z.object({
-  url: z.url("Enter the Proxmox address, e.g. https://192.168.1.10:8006."),
+  url: httpUrl,
   username: z.string().trim().regex(/^[^@\s]+@[^@\s]+$/, "Username must look like root@pam."),
   password: z.string().max(1000),
   allowControl: z.literal("on").optional(),
@@ -78,6 +87,10 @@ export async function connectProxmoxAction(_state: SettingsState, formData: Form
     return { error: `Remove ${locked.join(", ")} from compose.yaml / .env first; those settings win.` };
   }
 
+  let guestAgentAddresses: boolean;
+  let oldTokensRemoved = true;
+  // Set once the token exists on Proxmox but is not saved yet.
+  let unsavedToken: Awaited<ReturnType<typeof createProxmoxToken>> | undefined;
   try {
     const token = await createProxmoxToken({
       url: parsed.data.url,
@@ -85,17 +98,40 @@ export async function connectProxmoxAction(_state: SettingsState, formData: Form
       password: parsed.data.password,
       allowControl: parsed.data.allowControl === "on",
     });
+    unsavedToken = token;
     saveSettings({
       PROXMOX_URL: parsed.data.url,
       PROXMOX_TOKEN_ID: token.tokenId,
       PROXMOX_TOKEN_SECRET: token.secret,
     });
+    unsavedToken = undefined;
+    guestAgentAddresses = token.guestAgentAddresses;
+    // Only now, with the new token saved, the old one can go.
+    await token.removeOldTokens().catch((error: Error) => {
+      oldTokensRemoved = false;
+      console.warn(`Proxmox wizard: could not remove old tokens of safehub@pve: ${error.message}`);
+    });
   } catch (error) {
+    // Saving failed: the new token's secret is lost, so remove the token
+    // instead of leaving an unused one on Proxmox. Never log the secret.
+    if (unsavedToken) {
+      const tokenId = unsavedToken.tokenId;
+      await unsavedToken.removeNewToken().catch((removeError: Error) => {
+        console.warn(`Proxmox wizard: could not remove the unsaved token ${tokenId}: ${removeError.message}`);
+      });
+    }
     const result = errorResult(error);
     return { error: result.message, certificateChanged: result.certificateChanged };
   }
   refresh();
-  return { message: "Connected. SafeHub now uses its own Proxmox token; the password was not saved." };
+  const notes = [
+    "Connected. SafeHub now uses its own Proxmox token; the password was not saved.",
+    guestAgentAddresses
+      ? ""
+      : "This Proxmox version has no read-only guest agent right (VM.GuestAgent.Audit, Proxmox VE 9), so VM addresses from the guest agent are not shown. Container (LXC) addresses still work.",
+    oldTokensRemoved ? "" : "Old safehub@pve tokens could not be removed; delete them in Proxmox.",
+  ];
+  return { message: notes.filter(Boolean).join(" ") };
 }
 
 // Settings > Notifications: sends a test push with the saved settings.

@@ -4,14 +4,14 @@ Self-hosted dashboard for a home lab. One page to see and control your servers a
 
 ## Features
 
-- **Proxmox:** each node with its VMs and LXCs as a tree: CPU, RAM, uptime, IP address, and the services running on each guest (matched by IP, including apps in Docker inside a guest; VMs need the QEMU guest agent). Start, shut down, reboot, force stop and resume; destructive actions ask first.
+- **Proxmox:** each node with its VMs and LXCs as a tree: CPU, RAM, uptime, IP address, and the services running on each guest, shown as full tiles under it (matched by IP, or by container name for apps in Docker on the machine SafeHub runs on; VMs need the QEMU guest agent). Services that match no guest stay in the Services card. Start, shut down, reboot, force stop and resume; destructive actions ask first.
 - **Backups:** age of each guest's newest Proxmox backup (any backup storage, including the NAS or Proxmox Backup Server), with an alert when it is older than 7 days (configurable) or when the last backup job failed.
 - **Synology:** CPU, RAM, volume usage, disk health and temperatures. Works with DSM 6 and 7.
 - **Services:** status, version and key numbers for Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, Seerr (Jellyseerr/Overseerr) and Immich. Health warnings show on each tile. Sonarr, Radarr, Prowlarr, Bazarr and Seerr can set themselves up from their config folders. Buttons on the tiles: search missing and refresh (Sonarr, Radarr), test indexers (Prowlarr), scan libraries (Jellyfin). The Seerr tile lists pending requests with Approve and Decline.
 - **Docker:** with the Docker socket mounted, the containers of the machine SafeHub runs on show under their Proxmox guest (or in their own card), with start, stop and restart.
-- **History:** CPU, memory and disk usage of the NAS, Proxmox nodes and guests, recorded every minute. 24-hour trend lines on the dashboard; tap a name for charts over 24 hours, 7, 30 or 90 days.
-- **Alerts:** checked every minute, kept for 90 days. CPU or memory above 90 % for 5 minutes, volumes above 85 % (critical at 95 %), disks not healthy, services or machines not answering, backups overdue or failed, Docker containers that crash, keep restarting or report unhealthy (only containers SafeHub has seen running; stopping one on purpose is not an alert). Open problems show at the top of the dashboard; the bell counts current problems (it drops as soon as one is fixed), and the Alerts page lists when each problem started, how long it lasted and its peak.
-- **Phone notifications:** alerts as push notifications through [ntfy](https://ntfy.sh) (public server or your own, see [Own ntfy server](#own-ntfy-server-optional)) when a problem starts, becomes critical or is resolved. Optional, critical-only if you like, with a test button.
+- **History:** CPU, memory and disk usage of the NAS, Proxmox nodes and guests, and CPU and memory of each Docker container, recorded every minute. 24-hour trend lines on the dashboard; tap a name for charts over 24 hours, 7, 30 or 90 days.
+- **Alerts:** checked every minute, kept for 90 days. CPU or memory above 90 % for 5 minutes, volumes above 85 % (critical at 95 %), disks or RAID volumes not healthy (degraded, crashed), services or machines not answering, with the cause when known (login rejected, certificate changed, unexpected response, VPN not running), backups overdue or failed, qBittorrent listening on another port than the one Gluetun forwards, Docker containers that crash, keep restarting (also crash loops where the container looks running) or report unhealthy (only containers SafeHub has seen running; stopping one on purpose is not an alert). Open problems show at the top of the dashboard; the bell counts current problems (it drops as soon as one is fixed), and the Alerts page lists when each problem started, how long it lasted and its peak.
+- **Phone notifications:** alerts as push notifications through [ntfy](https://ntfy.sh) (public server or your own, see [Own ntfy server](#own-ntfy-server-optional)) when a problem starts, becomes critical or is resolved. Optional, critical-only if you like, with a test button. On the Alerts page you can mute one alert (1, 8 or 24 hours, or until resolved) or pause all notifications during planned maintenance (1, 4 or 24 hours); alerts are still recorded.
 - **Settings page:** add and change services in the browser; no file editing or restart. Proxmox can be connected with an admin login: SafeHub creates its own limited user and token.
 - **Check setup:** Settings → Check setup asks every configured system directly and lists what SafeHub sees (versions, token rights, guest addresses, where each service was placed, backups), with a copyable report that never contains keys.
 - **Update notice:** a badge in the header when GitHub has a newer version.
@@ -28,7 +28,7 @@ Built with Next.js, better-auth, Drizzle (SQLite) and Tailwind CSS.
 
 - **Never expose it to the internet.** No port forwarding. For remote access use a VPN such as Tailscale or WireGuard.
 - **Pick a real password.** SafeHub lets the password be anything, including empty, for convenience on a trusted LAN. Anyone who can reach the login page and guesses the username gets full control. Failed logins are limited (5 per 15 minutes per username), which slows guessing but does not replace a password.
-- **Give every API key the least rights it needs:** a Proxmox token with only `PVEAuditor` (plus `PVEVMUser` if you want the buttons), a dedicated Synology user, never your personal accounts.
+- **Give every API key only the rights it needs:** a Proxmox token with `PVEAuditor` (read-only) and `VM.GuestAgent.Audit` for VM addresses (Proxmox VE 9; on Proxmox VE 8 that right does not exist and the wizard skips it, so VM addresses from the guest agent are not shown, container addresses still are), plus `PVEVMUser` if you want the buttons (that role is more than start/stop: it also allows console access, backups and CD-ROM changes on every guest); the Connect wizard sets exactly this up. Use a dedicated Synology user, never your personal accounts.
 - **Keep your keys private.** Whichever file holds them (`compose.yaml` or `.env`): `chmod 600`, never commit it, never paste it into issues. `.env` is gitignored; a `compose.yaml` with keys is not.
 - **Certificates are pinned on first use.** Proxmox and Synology usually have self-signed certificates. SafeHub trusts the certificate it sees on the first connection and refuses a different one later, like SSH does with host keys. If you renew or replace a certificate, the card shows its new fingerprint and an "Accept new certificate" button; accept only if you made that change. `*_ALLOW_SELF_SIGNED=true` turns this protection off for a service.
 
@@ -76,11 +76,14 @@ Every setting is also an environment variable, for those who prefer files: under
 
 If the login secret changes, values saved on the Settings page can no longer be decrypted and must be entered again.
 
+Addresses must start with `http://` or `https://` and must not contain a user name or password (`http://user:pass@host`); put credentials in their own fields. SafeHub refuses to start with such an address in `compose.yaml` / `.env`.
+
 | What | Create it in | Setting | Notes |
 |------|-------------|---------|-------|
 | SafeHub account (username + password) | SafeHub, `/setup` page | Stored in the database | First visit. Sign-up closes afterwards. No email needed. |
 | Login secret | Automatic (`data/auth-secret`) | `BETTER_AUTH_SECRET` (optional) | Only set it to choose your own. Changing it signs everyone out. |
 | HTTPS address (optional) | Your reverse proxy, e.g. Caddy | `BETTER_AUTH_URL=https://safehub.example.lan` | Only when SafeHub is served over HTTPS: enables Secure cookies. Leave unset for plain `http://<IP>:3000`. |
+| Extra addresses (optional) | The other addresses you open SafeHub at | `BETTER_AUTH_TRUSTED_ORIGINS=http://192.168.1.20:3000` | Only together with `BETTER_AUTH_URL`: comma-separated `http(s)://` origins you also use, e.g. the LAN IP next to the Caddy domain. |
 | Proxmox API token | Settings → Proxmox → **Connect with password** (creates user `safehub@pve` and its token; the password is not stored), or Proxmox UI: Datacenter → Permissions → API Tokens | `PROXMOX_URL`, `PROXMOX_TOKEN_ID`, `PROXMOX_TOKEN_SECRET` | Connect needs an admin account without two-factor login. |
 | Proxmox / Synology certificates | Automatic: pinned on first connection | Optional: `*_CA_CERT_PATH=./certs/<ca>.pem` to verify against a CA instead | A changed certificate shows an "Accept new certificate" button on the card |
 | Proxmox backup age limit (optional) | | `PROXMOX_BACKUP_MAX_AGE_DAYS` (default 7) | Backups are read with the same token (PVEAuditor). Guests never backed up are not warned about. |
@@ -89,8 +92,20 @@ If the login secret changes, values saved on the Settings page can no longer be 
 | Jellyfin API key | Jellyfin: Dashboard → API Keys → + | `JELLYFIN_URL`, `JELLYFIN_API_KEY` | |
 | Seerr API key | Automatic (see above), or Seerr: Settings → General → API Key | `SEERR_URL`, `SEERR_API_KEY` | |
 | Immich API key | Immich (as admin): Account Settings → API Keys | `IMMICH_URL`, `IMMICH_API_KEY` | |
-| Docker containers (optional) | Uncomment `/var/run/docker.sock:/var/run/docker.sock:ro` under `volumes:` in `compose.yaml` | Nothing to set (`DOCKER_SOCKET` only for another path, e.g. rootless Docker) | Containers of the machine SafeHub runs on show under its Proxmox guest (or in a Docker card without Proxmox), with start, stop and restart. Matched by host name = guest name, or by Docker networks (VMs need the QEMU guest agent). Access to the socket equals root on that machine. |
+| qBittorrent login | qBittorrent: Options → Web UI | `QBITTORRENT_URL`, `QBITTORRENT_USERNAME`, `QBITTORRENT_PASSWORD` | Behind Gluetun the Web UI is reached through Gluetun's container name (`http://gluetun:8080`). Login optional if "Bypass authentication for clients in whitelisted IP subnets" covers SafeHub. A rejected password stops login attempts until you change the credentials (or restart SafeHub), so qBittorrent never bans SafeHub's IP. With Gluetun configured too, the tile warns when qBittorrent listens on another port than the VPN forwards, and "Use VPN port" sets it. |
+| Gluetun API key | Gluetun control server auth config (see below) | `GLUETUN_URL` (e.g. `http://gluetun:8000`), `GLUETUN_API_KEY` | Shows VPN status, public IP and forwarded port (older Gluetun versions: `/v1/openvpn/portforwarded`). A stopped VPN turns the tile red and raises an alert. |
+| Docker containers (optional) | Uncomment `/var/run/docker.sock:/var/run/docker.sock:ro` under `volumes:` in `compose.yaml` | Nothing to set (`DOCKER_SOCKET` only for another path, e.g. rootless Docker) | Containers of the machine SafeHub runs on show under its Proxmox guest (or in a Docker card without Proxmox), with start, stop and restart. Matched by host name = guest name, or by Docker networks (VMs need the QEMU guest agent). Access to the socket equals root on that machine. SafeHub joins the socket's group, never group 0: if the socket belongs to `root:root` (some NAS systems), the log and Check setup show a warning and Docker stays hidden until you give it a group on the host, e.g. `sudo chgrp docker /var/run/docker.sock` (Synology: `sudo synogroup --add docker` first). |
 | Phone notifications (optional) | ntfy app: subscribe to a topic of your choice | `NTFY_TOPIC`, optional `NTFY_URL` (default `https://ntfy.sh`), `NTFY_TOKEN`, `NTFY_CRITICAL_ONLY` | Use a long random topic: on ntfy.sh anyone who knows it can read the messages. Or run your own server (below). Settings has a test button. |
+
+**Gluetun API key.** Since 3.40, Gluetun's control server only answers roles from its auth config. Create `config.toml` in a folder mounted into Gluetun, point `HTTP_CONTROL_SERVER_AUTH_CONFIG_FILEPATH` at it, and set the same key as `GLUETUN_API_KEY`:
+
+```toml
+[[roles]]
+name = "safehub"
+routes = ["GET /v1/vpn/status", "GET /v1/publicip/ip", "GET /v1/portforward"]
+auth = "apikey"
+apikey = "<long random key>"
+```
 
 **Keys in `compose.yaml` or `.env`?** Both work. If `compose.yaml` holds keys, treat it like a secret file: `chmod 600 compose.yaml`, and never commit or share it. Write a literal `$` in a value as `$$`, because Compose reads `$` as a variable. A separate `.env` keeps keys out of a file you may want to share or put in git.
 
@@ -177,6 +192,8 @@ PROWLARR_URL=http://prowlarr:9696
 BAZARR_URL=http://bazarr:6767
 SEERR_URL=http://jellyseerr:5055
 JELLYFIN_URL=http://jellyfin:8096
+QBITTORRENT_URL=http://gluetun:8080   # qBittorrent shares Gluetun's network
+GLUETUN_URL=http://gluetun:8000
 ```
 
 Services on other machines (Proxmox, Synology, anything outside this stack) use their LAN address as usual.

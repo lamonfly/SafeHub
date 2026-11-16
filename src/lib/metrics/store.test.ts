@@ -39,6 +39,23 @@ describe("history", () => {
     expect(store.readTrends(["node:pve:cpu"]).get("node:pve:cpu")).toHaveLength(12);
   });
 
+  it("finds series by prefix: exact, case-sensitive, no wildcards", () => {
+    const ts = Date.now() - (Date.now() % MINUTE);
+    db.insert(schema.metricSample)
+      .values(
+        ["synology:volume:/volume_1", "synology:volume:/volume2", "synology:volumes", "Synology:volume:/x", "synology:volume"].map((series) => ({
+          series,
+          ts,
+          value: 1,
+        })),
+      )
+      .run();
+    db.insert(schema.metricHourly).values({ series: "synology:volume:/old", ts: ts - (ts % HOUR), avg: 1, max: 1 }).run();
+    expect(store.knownSeries("synology:volume:")).toEqual(["synology:volume:/old", "synology:volume:/volume2", "synology:volume:/volume_1"]);
+    expect(store.knownSeries("synology:volume:/volume_")).toEqual(["synology:volume:/volume_1"]);
+    expect(store.knownSeries("nothing:")).toEqual([]);
+  });
+
   it("keeps a missing series as an empty list", () => {
     expect(store.readSeries(["nothing:here"], "24h").get("nothing:here")).toEqual([]);
   });

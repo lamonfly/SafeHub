@@ -71,6 +71,13 @@
       "when": 1794628353493,
       "tag": "0009_remove_caddy_setting",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794797325799,
+      "tag": "0010_alert_mute",
+      "breakpoints": true
     }
   ]
 }
